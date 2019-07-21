@@ -1,3 +1,5 @@
+#ifndef Common_Define
+#define Common_Define
 int get_conf_value(const char *file, const char *key, char *val) {
     if (key == NULL || val == NULL) {printf("Wrong parameters\n"); return -1;}
     
@@ -23,5 +25,4 @@ int get_conf_value(const char *file, const char *key, char *val) {
     }
     return 0;
 }
-
-
+#endif

@@ -20,43 +20,16 @@
 #include <pthread.h>
 #include <sys/ioctl.h>
 
-
 #include "Sock.c"
 #include "ClntList.c"
 #include "Epoll.c"
+#include "Common.c"
 
 
 #define PORT 8888
 #define MAX_EVENTS 100
 
 
-
-
-int get_conf_value(const char *file, const char *key, char *val) {
-    if (key == NULL || val == NULL) {printf("Wrong parameters\n"); return -1;}
-    
-    FILE *fp = fopen(file, "r");
-    if (fp == NULL) {perror("fopen"); return -1;}
-    
-    int readnum;
-    char *line= (char *)malloc(sizeof(char) * 100);
-    size_t n;
-
-    while ((readnum = getline(&line, &n, fp)) != -1) {
-        char *p = strstr(line, key);
-        if (p == NULL) continue;
-        int len = strlen(key);
-        if(p[len] != '=') continue;
-        strncpy(val, p+len+1, (int)readnum - len - 2);
-        break;
-    }
-    if(readnum == 0) {
-        printf("%s Not Found!\n", key);
-        free(line);
-        return 1;
-    }
-    return 0;
-}
 
 void *heartbeat (void *arg) {
     int cnt = 0;
@@ -73,16 +46,16 @@ void *heartbeat (void *arg) {
             struct sockaddr_in serv_addr;
             memset(&serv_addr, 0, sizeof(serv_addr));
             serv_addr.sin_family = AF_INET;
-
-            struct in_addr in;
-            in.s_addr = c->ip;
-            serv_addr.sin_addr.s_addr = inet_addr(inet_ntoa(in));
+            char *c_ip_str = get_ip_str(c);
+            serv_addr.sin_addr.s_addr = inet_addr(c_ip_str);
             serv_addr.sin_port = htons(atoi(clntHPORT));
-            printf("clntHPORT = %s\n", clntHPORT);
+            //printf("clntHPORT = %s\n", clntHPORT);
             unsigned long ul = 1;
             ioctl(sock, FIONBIO, &ul);
             int con_ret = connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
-            perror("connect");
+            //perror("connect");
+            int heartbeatflag = 0;
+
             if(con_ret < 0 && errno == EINPROGRESS) {
                 fd_set wfds;
                 FD_ZERO(&wfds);
@@ -92,30 +65,34 @@ void *heartbeat (void *arg) {
                 tv.tv_usec = 300000;
                 int ret = select(sock + 1, NULL, &wfds, NULL, &tv);
                 if(ret == 0) {
-                    printf("<%s>超时， 心跳失败，收尸！\n", inet_ntoa(in));
+                    printf("<%s>超时， 心跳失败，收尸！\n", c_ip_str);
                 } else if(ret >= 0) {
                     int error = -1;
                     int len = sizeof(error);
                     if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, (socklen_t *)&len) < 0) {
                         perror("getsockopt");
                     }else if(error == 0) {
-                        printf("getsockopt, error = %d\n", error);
-                        printf("<%s> getsockopt之后，心跳成功！！！\n", inet_ntoa(in));
+                        //printf("getsockopt, error = %d\n", error);
+                        printf("<%s> getsockopt之后，心跳成功！！！\n", c_ip_str);
+                        heartbeatflag = 1;
                     } else {
-                        printf("getsockopt, error = %d\n", error);
-                        printf("<%s> getsockopt之后，心跳失败，收尸！\n", inet_ntoa(in));
+                        //printf("getsockopt, error = %d\n", error);
+                        printf("<%s> getsockopt之后，心跳失败，收尸！\n", c_ip_str);
                     }
                 } else {
                     perror("select");
                 }
-                c=c->next;
             } else {
-                printf("<%s> 心跳异常，收尸！\n", inet_ntoa(in));
-                c=c->next;
+                printf("<%s> 心跳异常，收尸！\n", c_ip_str);
+                heartbeatflag = 1;
             }
+            if(!heartbeatflag) {
+                printf("<%s> 删除该服务器\n", c_ip_str);
+                List_delete(all_clnt, c->id);
+            }
+            c=c->next;
             close(sock);
         }
-        
         //show_list(all_clnt);
         sleep(1);
         printf("第%d次心跳遍历检测, OVER\n\n",cnt);

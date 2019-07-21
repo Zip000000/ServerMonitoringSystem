@@ -68,13 +68,21 @@ int main() {
     if (pid == 0) my_id++;
 
     if (my_id == 0) {
+        int listen_socket = get_listen_socket(clntIP, atoi(clntHPORT));
         while(1) {
-
             printf("我是老大\n");
-            int listen_socket = get_listen_socket(clntIP, atoi(clntHPORT));
-            accept_clnt(listen_socket);
+            int master_socket = accept_clnt(listen_socket);
             printf("收到心跳\n");
-            close(listen_socket);
+            /*
+            char tmp[20];
+            int recv_ret = 0;
+            while((recv_ret = recv(listen_socket, tmp, sizeof(tmp), 0)) <= 0) {
+                printf("recv_ret = %d\n", recv_ret);
+            }
+            printf("对方关闭链接\n");
+            */
+            close(master_socket);
+            printf("已经关闭mastersocket\n");
         }
     }
     

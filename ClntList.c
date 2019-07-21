@@ -84,4 +84,10 @@ void show_list(ClntInfoList *l) {
 
 }
 
+char *get_ip_str(clntnode *n) {
+    struct in_addr in;
+    in.s_addr = n->ip;
+    return inet_ntoa(in);
+}
+
 #endif
