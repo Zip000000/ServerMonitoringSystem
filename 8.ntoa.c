@@ -13,7 +13,6 @@
 
 char *my_inet_ntoa(struct in_addr in) {
     char *i = (char *)&(in.s_addr);
-    
     printf("%u.%u.%u.%u\n", i[0], i[1], i[2], i[3]);
 
 }

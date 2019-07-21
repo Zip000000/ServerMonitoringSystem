@@ -1,3 +1,9 @@
-Age=18
-name="Zip"
+MasterIP=192.168.2.90
+MasterPORT=8888
+startIP=192.168.1.40
+endIP=192.168.1.60
 
+
+ClntIP=192.168.1.43
+ClntPORT=6666
+ClntHPORT=7777
