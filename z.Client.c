@@ -69,6 +69,7 @@ int main() {
 
     if (my_id == 0) {
         int listen_socket = get_listen_socket(clntIP, atoi(clntHPORT));
+        if(listen_socket < 0) {perror("getlistensock"); exit(1);}
         while(1) {
             printf("我是老大\n");
             int master_socket = accept_clnt(listen_socket);
