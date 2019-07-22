@@ -17,46 +17,66 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/epoll.h>
-
+#include <signal.h>
 #include "Sock.c"
 #include "Common.c"
 
 #define MAX_EVENTS 10
 
-void add_event(int epollfd, int fd, int state) {
-    struct epoll_event ev;
-    ev.events = state;
-    ev.data.fd = fd;
-    if(epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &ev) < 0 ) {
-        perror("epoll_ctl");
-        exit(1);
-    }
-}
-
-int main() {
-    char clntIP[100];
-    char clntHPORT[100];
+char clntIP[100];
+char clntHPORT[100];
+char masterIP[100];
+char masterPORT[100];
+void do_config() {
     memset(clntIP, 0, sizeof(clntIP));
     memset(clntHPORT, 0, sizeof(clntHPORT));
     get_conf_value("config", "ClntIP", clntIP);
     get_conf_value("config", "ClntHPORT", clntHPORT);
-
-    
-    char masterIP[100];
-    char masterPORT[100];
     memset(masterIP, 0, sizeof(masterIP));
     memset(masterPORT, 0, sizeof(masterPORT));
     get_conf_value("config", "MasterIP", masterIP);
     get_conf_value("config", "MasterPORT", masterPORT);
-    printf("master IP = %s Master PORT =  %s", masterIP, masterPORT);
-    printf("clnt IP = %s clnt PORT =  %s", clntIP, clntHPORT);
 
+}
+
+void grandson_lazy_connect(int tmp) {
+    printf("in grandson_lazy_connect()\n");
     int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock == -1) {perror("socket");exit(1);}
     struct sockaddr_in serv_addr;
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = inet_addr(masterIP);
     serv_addr.sin_port = htons(atoi(masterPORT));
+    int flag = 0;
+    for (int i = 1;; i++) {
+        printf("[son] 第%d次尝试连接Master\n", i);
+        int ret = connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
+        if(ret == -1) {
+            printf("[son] 失败, 1s后进行下次尝试。。。。\n");
+            sleep(1);
+        } else if(ret == 0) {
+            printf("[son] 链接成功\n");
+            flag = 1;
+            break;
+        }
+    }
+    sleep(50);
+    
+} 
+
+int main() {
+    do_config();
+    printf("master IP = %s Master PORT =  %s\n", masterIP, masterPORT);
+    printf("clnt IP = %s clnt PORT =  %s\n", clntIP, clntHPORT);
+    /*
+    int sock = get_socket(masterIP, atoi(masterPORT));
+    if(sock == -1) exit(1);
+    */
+    printf("主进程：永远等待master发送心跳。\n");
+    printf("子进程：若子线程十次失败，孙子线程继承连接责任。成功则kill孙子进程。\n");
+    printf("孙子进程：主动链接master上限十次。之后无论成功失败都执行client本职任务。\n");
+    
 	pid_t pid;
 
 	int my_id = 0;
@@ -66,7 +86,7 @@ int main() {
         pid = fork();
 	}
     if (pid == 0) my_id++;
-
+    
     if (my_id == 0) {
         int listen_socket = get_listen_socket(clntIP, atoi(clntHPORT));
         if(listen_socket < 0) {perror("getlistensock"); exit(1);}
@@ -74,6 +94,7 @@ int main() {
             printf("我是老大\n");
             int master_socket = accept_clnt(listen_socket);
             printf("收到心跳\n");
+            printf("------------------------------\n");
             /*
             char tmp[20];
             int recv_ret = 0;
@@ -86,45 +107,51 @@ int main() {
             printf("已经关闭mastersocket\n");
         }
     }
+    if(my_id == 1) {
+        printf("我是子进程, 在等待孙子进程告知结果\n");
+        signal(10, grandson_lazy_connect);
+        pause();
+    }
     
-    if (my_id == 1) {
-        printf("我是子进程\n");
-        for(int i = 1; i <= 10; i++) {
+    if (my_id == 2) {
+        printf("我是孙子进程\n");
+        int sock = socket(AF_INET, SOCK_STREAM, 0);
+        if (sock == -1) {perror("socket");exit(1);}
+        struct sockaddr_in serv_addr;
+        memset(&serv_addr, 0, sizeof(serv_addr));
+        serv_addr.sin_family = AF_INET;
+        serv_addr.sin_addr.s_addr = inet_addr(masterIP);
+        serv_addr.sin_port = htons(atoi(masterPORT));
+        int flag = 0;
+        for (int i = 1; i <= 10; i++) {
             printf("第%d次尝试连接Master\n", i);
             int ret = connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
             if(ret == -1) {
-                printf("失败\n");
+                printf("失败, 1s后进行下次尝试。。。。\n");
                 sleep(1);
             } else if(ret == 0) {
                 printf("链接成功\n");
-                sleep(30);
+                flag = 1;
                 break;
             }
         }
+        if (flag == 1) {
+            printf("***孙子进程进行本职任务***\n");
+        } else {
+            printf("让子进程继续尝试链接master\n");
+            close(sock);
+            if(kill(getppid(), 10) == -1) {
+                perror("kill");
+            }
+        }
+
+        printf("***孙子进程正在工作。。。。。。。***\n");
+        sleep(100);
     }
     
-    if(my_id == 2) {
-        printf("我是孙子进程\n");
-        
-    }
     
     
     return 0;
 }
 
 
-
-/*
-            int ret = epoll_wait(epollfd, events, MAX_EVENTS, 1000000);
-            if(ret == 0) continue;
-            if(ret < 0) {perror("epoll_wait");}
-            if(ret > 0) printf(" ret = %d epoll 收到链接\n", ret);
- */
-
-
-        /*
-        int epollfd;
-        struct epoll_event events[MAX_EVENTS];
-        epollfd = epoll_create(1);
-        add_event(epollfd, sock, EPOLLIN);
-        */

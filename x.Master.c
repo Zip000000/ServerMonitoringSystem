@@ -93,39 +93,48 @@ int do_heartbeat(clntnode *c) {
     } else {
         printf("<%s> 心跳异常，收尸！\n", c_ip_str);
     }
-    c=c->next;
     close(sock);
     return heartbeatflag;
 
 }
 
 void *heartbeat (void *arg) {
+    printf("5s之后开启心跳监测\n");
+    sleep(5);
     int cnt = 0;
     while(1) {
         printf("子线程进行第%d次心跳遍历检测\n",cnt);
 
-        clntnode *c = all_clnt->head->next;
-        while(c) {
-            if(!do_heartbeat(c)) {
-                printf("删除该服务器\n");
-                List_delete(all_clnt, c->id);
-            }
+        clntnode *c = all_clnt->head;
+        while(c->next) {
+            c=c->next;
+            int now_id = c->id;
+            if(do_heartbeat(c)) continue;
+            printf("删除该服务器\n");
+            List_delete(all_clnt, now_id);
+            //sleep(1);
         }
         //show_list(all_clnt);
-        sleep(1);
         printf("第%d次心跳遍历检测, OVER\n",cnt);
         printf("--------------------------------\n");
         cnt++;
+        sleep(3);
     }
 }
-void add_clnt(int listen_socket) {
+int add_clnt(int listen_socket) {
     int clnt_socket;
     clnt_socket = accept_clnt(listen_socket);
     printf("accept 成功, 加入链表。\n");
     struct sockaddr_in clnt_addr;
     socklen_t len = sizeof(clnt_addr);
     getpeername(clnt_socket, (struct sockaddr *)&clnt_addr, &len);
-    List_add(all_clnt, clnt_addr.sin_addr.s_addr);
+    unsigned ip = clnt_addr.sin_addr.s_addr;
+    if(!is_in_list(all_clnt, ip)) {
+        List_add(all_clnt, clnt_addr.sin_addr.s_addr);
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 void add_all_clnt() {
@@ -136,8 +145,9 @@ void add_all_clnt() {
         struct in_addr in;
         in.s_addr = ntohl(i);
         all_clnt = List_add(all_clnt, ntohl(i));
-        printf("%s~%s 插入完毕\n", startIP, endIP);
     }
+    printf("%s~%s 插入完毕\n", startIP, endIP);
+    show_list(all_clnt);
 
 
 }
@@ -161,7 +171,11 @@ int main() {
         if(nfds == -1) {
             perror("epoll_wait");
         }
-        add_clnt(listen_socket);
+        if(add_clnt(listen_socket) == 1) {
+            printf("加入成功\n");
+        } else {
+            printf("该客户端已存在\n");
+        }
     }
     close(epollfd);
 

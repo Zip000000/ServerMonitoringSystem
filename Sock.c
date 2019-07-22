@@ -1,7 +1,20 @@
 #ifndef MySock
 #define MySock
+int get_socket(char *ip, int port) {
+    int sock;
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("get_socket");
+        return -1;
+    }
+    struct sockaddr_in my_addr;
+    memset(&my_addr, 0, sizeof(my_addr));
+    my_addr.sin_family = AF_INET;
+    my_addr.sin_port = htons(port);
+    my_addr.sin_addr.s_addr = inet_addr(ip);
+    return sock;
+}
 int get_listen_socket(char *ip, int port) {
-    int listen_socket;
+    int listen_socket = get_socket(ip, port);
     if ((listen_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("socket() error");
         return -1;

@@ -71,6 +71,18 @@ int List_delete(ClntInfoList *all_clnt, int id) {
     }
         return 0;
 }
+
+int is_in_list(ClntInfoList *all_clnt, unsigned int ip) {
+        if(all_clnt->clnt_num == 0) return 0;
+        clntnode *p;
+        p = all_clnt->head->next;
+    while(p) {
+        if(p->ip ==ip) return 1;
+        p = p->next;
+    }
+        return 0;
+}
+
 void show_list(ClntInfoList *l) {
     clntnode *c;
     c = l->head->next;
