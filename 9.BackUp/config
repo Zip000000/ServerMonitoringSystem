@@ -6,7 +6,6 @@ MasterIP=192.168.2.90
 MasterIP!=127.0.0.1
 MasterPORT=8888
 Master_MAX_EVENTS=100
-Master_MAX_WORK_EVENTS=1000
 
 
 

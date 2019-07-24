@@ -31,15 +31,11 @@ char endIP[100];
 char masterIP[100];
 char masterPORT[100];
 char clntHPORT[100];
-char clntPORT[100];
 char clntIP[100];
 char INS[100];
 char MAX_EVENTS[100];
-char MAX_WORK_EVENTS[100];
 
 void do_master_config() {
-    memset(clntPORT, 0, sizeof(clntPORT));
-    get_conf_value("config", "ClntPORT", clntPORT);
     memset(clntHPORT, 0, sizeof(clntHPORT));
     get_conf_value("config", "ClntHPORT", clntHPORT);
     memset(masterIP, 0, sizeof(masterIP));
@@ -54,14 +50,10 @@ void do_master_config() {
     get_conf_value("config", "Ins", INS);
     memset(MAX_EVENTS, 0, sizeof(MAX_EVENTS));
     get_conf_value("config", "Master_MAX_EVENTS", MAX_EVENTS);
-    memset(MAX_WORK_EVENTS, 0, sizeof(MAX_WORK_EVENTS));
-    get_conf_value("config", "Master_MAX_WORK_EVENTS", MAX_WORK_EVENTS);
 }
 
 
 void do_clnt_config() {
-    memset(clntPORT, 0, sizeof(clntPORT));
-    get_conf_value("config", "ClntPORT", clntPORT);
     memset(clntIP, 0, sizeof(clntIP));
     memset(clntHPORT, 0, sizeof(clntHPORT));
     get_conf_value("config", "ClntIP", clntIP);

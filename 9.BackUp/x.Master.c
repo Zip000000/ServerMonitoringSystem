@@ -79,32 +79,29 @@ int do_heartbeat(clntnode *c) {
 }
 
 void *heartbeat (void *arg) {
-    PClntInfoList *clntlist = (PClntInfoList *)arg;
-    printf("2s之后开启心跳监测\n");
-    sleep(2);
+    ClntInfoList *all_clnt = (ClntInfoList *)arg;
+    printf("5s之后开启心跳监测\n");
+    sleep(5);
     int cnt = 0;
     while(1) {
-        printf("子线程进行第%d次心跳遍历检测\n", cnt);
-        for (int i = 0; i < Ins; i++) {
-            ClntInfoList *all_clnt = clntlist[i];
-            
-            clntnode *c = all_clnt->head;
-            while(c->next) {
-                //int now_id = c->next->id;
-                if (!do_heartbeat(c->next)){
-                    printf("[No. %d] 删除该服务器\n", all_clnt->my_id);
-                    clntnode *d = c->next;
-                    c->next = c->next->next;
-                    free(d);
-                    continue;
-                    //List_delete(all_clnt, now_id);
-                }
-                c=c->next;
-                //sleep(1);
-            }    
+        printf("[No. %d]子线程进行第%d次心跳遍历检测\n",all_clnt->my_id, cnt);
+        
+        clntnode *c = all_clnt->head;
+        while(c->next) {
+            //int now_id = c->next->id;
+            if (!do_heartbeat(c->next)){
+                printf("[No. %d] 删除该服务器\n", all_clnt->my_id);
+                clntnode *d = c->next;
+                c->next = c->next->next;
+                free(d);
+                continue;
+                //List_delete(all_clnt, now_id);
+            }
+            c=c->next;
+            //sleep(1);
         }
         //show_list(all_clnt);
-        printf("第%d次心跳遍历检测, OVER\n",cnt);
+        printf("[No. %d]第%d次心跳遍历检测, OVER\n",all_clnt->my_id, cnt);
         printf("--------------------------------\n");
         cnt++;
         usleep(500000);
@@ -146,83 +143,18 @@ void add_all_clnt(PClntInfoList *all_clnt, int Ins) {
     }
 }
 
-void *do_work (void *arg) {
-
-    int epollfd;
-    struct epoll_event events[atoi(MAX_WORK_EVENTS) / Ins + 10];
-    epollfd = epoll_create(1);
-    
-    ClntInfoList *all_clnt = (ClntInfoList *)arg;
-    clntnode *c = all_clnt->head;
-    int my_id = all_clnt->my_id;
-    int cnt = 0;
-    while(1) {
-        cnt++;
-        while(c->next != NULL) {
-            int sock = socket(AF_INET, SOCK_STREAM, 0);
-            if (sock < 0) { perror("socket in do_work"); break;}
-
-            struct sockaddr_in serv_addr;
-            memset(&serv_addr, 0, sizeof(serv_addr));
-            serv_addr.sin_family = AF_INET;
-            char *cnext_ip_str = get_ip_str(c->next);
-            serv_addr.sin_addr.s_addr = inet_addr(cnext_ip_str);
-            serv_addr.sin_port = htons(atoi(clntPORT));
-            unsigned long ul = 1;
-            ioctl(sock, FIONBIO, &ul);
-            int con_ret = connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
-            add_event(epollfd, sock, EPOLLOUT);
-        }
-        printf("链表【%d】 全部注册完毕! from [FUNC: do_work]\n", my_id);
-        printf("开始进行第[%d]次收发:\n",cnt);
-    }
-   //写到这了！ 
-    
-    
-    while(1) {
-        //printf("正在 epollwait\n");
-        printf("------------------------------\n");
-        int nfds = epoll_wait(epollfd, events, atoi(MAX_WORK_EVENTS), 10000);
-        printf("nfds = %d\n", nfds);
-        if (nfds == -1) { 
-            perror("epoll_wait");
-        } else if(nfds == 0) {
-            printf("epoll wait Master心跳 超时\n");
-            printf("断线超时, 准备重连。\n");
-            if(kill(pid, 10) == -1) {
-                perror("kill");
-            }
-        } else {
-            int master_socket = accept_clnt(listen_socket);
-            if (master_socket != -1) {
-                printf("收到心跳\n");
-            } else {
-                printf("心跳失败\n");
-            }
-            close(master_socket);
-            printf("已经关闭mastersocket\n");
-        }
-    }
-    close(epollfd);
-
-    
-
-    
-    
-}
-
 int main() {
     do_master_config();
     Ins = atoi(INS);
     printf("Ins = %d\n", Ins);
     PClntInfoList *clnt_list;
     clnt_list=all_init(Ins);
+    //all_clnt = Clnt_Info_list_init();
     
     add_all_clnt(clnt_list, Ins);
-    pthread_t pthread_id[Ins + 1];
-	pthread_create(&pthread_id[Ins], NULL, heartbeat, clnt_list);
+    pthread_t pthread_id[Ins];
     for(int i = 0; i < Ins; i++) {
-	    pthread_create(&pthread_id[i], NULL, do_work, clnt_list[i]);
+	    pthread_create(&pthread_id[i], NULL, heartbeat, clnt_list[i]);
     }
     int listen_socket = get_listen_socket(masterIP, atoi(masterPORT));
     if (listen_socket < 0) exit(1);
@@ -247,3 +179,18 @@ int main() {
 	return 0;	
 }
 
+
+        /*
+        for(int i = 0; i < nfds; i++) {
+            //int now_fd = events[i].data.fd;
+            //printf("收到信号！ fd = %d \n", now_fd);
+            //if(now_fd == listen_socket) {
+            clnt_socket = accept_clnt(listen_socket);
+            printf("accept 成功, 加入链表。\n");
+            struct sockaddr_in clnt_addr;
+            socklen_t len = sizeof(clnt_addr);
+            getpeername(clnt_socket, (struct sockaddr *)&clnt_addr, &len);
+            List_add(all_clnt, clnt_addr.sin_addr.s_addr);
+            //}
+        }
+        */

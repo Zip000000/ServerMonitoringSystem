@@ -20,28 +20,13 @@
 #include <signal.h>
 #include "Sock.c"
 #include "Common.c"
-#include "Epoll.c"
 
 #define MAX_EVENTS 10
 
-int  accept_wait(int listen_socket) {
-    struct sockaddr_in client_addr;
-    socklen_t len = sizeof(client_addr);
-    printf("正在accept\n");
-    unsigned long ul = 1;
-     
-    int clnt_socket = accept(listen_socket, (struct sockaddr *)&client_addr, &len);
-    printf("accept over\n");
-    if(clnt_socket < 0) {
-        perror("accept");
-        return -1;
-    }
-    getpeername(clnt_socket, (struct sockaddr *)&client_addr, &len);
-    printf("<%s> : Login    fd = %d \n",inet_ntoa(client_addr.sin_addr), clnt_socket);
-    return clnt_socket;
-}
-
-
+char clntIP[100];
+char clntHPORT[100];
+char masterIP[100];
+char masterPORT[100];
 
 void grandson_lazy_connect(int tmp) {
     printf("in grandson_lazy_connect()\n");
@@ -65,7 +50,7 @@ void grandson_lazy_connect(int tmp) {
             break;
         }
     }
-    return;
+    sleep(50);
 } 
 
 int main() {
@@ -95,37 +80,9 @@ int main() {
     if (my_id == 0) {
         while(1) {
             printf("我是老大\n");
-            
-			int epollfd;
-			struct epoll_event events[MAX_EVENTS];
-			epollfd = epoll_create(1);
-			add_event(epollfd, listen_socket, EPOLLIN);
-			while(1) {
-				//printf("正在 epollwait\n");
-                printf("------------------------------\n");
-				int nfds = epoll_wait(epollfd, events, MAX_EVENTS, 10000);
-				printf("nfds = %d\n", nfds);
-				if (nfds == -1) { 
-                    perror("epoll_wait");
-                } else if(nfds == 0) {
-                    printf("epoll wait Master心跳 超时\n");
-                    printf("断线超时, 准备重连。\n");
-                    if(kill(pid, 10) == -1) {
-                        perror("kill");
-                    }
-                } else {
-                    int master_socket = accept_clnt(listen_socket);
-                    if (master_socket != -1) {
-                        printf("收到心跳\n");
-                    } else {
-                        printf("心跳失败\n");
-                    }
-                    close(master_socket);
-                    printf("已经关闭mastersocket\n");
-                }
-			}
-			close(epollfd);
-
+            int master_socket = accept_clnt(listen_socket);
+            printf("收到心跳\n");
+            printf("------------------------------\n");
             /*
             char tmp[20];
             int recv_ret = 0;
@@ -134,12 +91,14 @@ int main() {
             }
             printf("对方关闭链接\n");
             */
+            close(master_socket);
+            printf("已经关闭mastersocket\n");
         }
     }
     if(my_id == 1) {
         printf("我是子进程, 在等待孙子进程告知结果\n");
         signal(10, grandson_lazy_connect);
-        while(1) pause();
+        pause();
     }
     
     if (my_id == 2) {
