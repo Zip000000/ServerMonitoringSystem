@@ -72,16 +72,10 @@ int main() {
     do_clnt_config();
     printf("master IP = %s Master PORT =  %s\n", masterIP, masterPORT);
     printf("clnt IP = %s clnt PORT =  %s\n", clntIP, clntHPORT);
-    /*
-    int sock = get_socket(masterIP, atoi(masterPORT));
-    if(sock == -1) exit(1);
-    */
     printf("主进程：永远等待master发送心跳。\n");
     printf("子进程：若孙子线程十次失败，子线程父承子业。成功则kill孙子进程。\n");
     printf("孙子进程：主动链接master上限十次。之后无论成功失败都执行client本职任务。\n");
     
-    int listen_socket = get_listen_socket(clntIP, atoi(clntHPORT));
-    if(listen_socket < 0) {perror("getlistensock"); exit(1);}
 
 	pid_t pid;
 	int my_id = 0;
@@ -93,6 +87,8 @@ int main() {
     if (pid == 0) my_id++;
     
     if (my_id == 0) {
+        int listen_socket = get_listen_socket(clntIP, atoi(clntHPORT));
+        if(listen_socket < 0) {perror("getlistensock"); exit(1);}
         while(1) {
             printf("我是老大\n");
             
@@ -109,7 +105,7 @@ int main() {
                     perror("epoll_wait");
                 } else if(nfds == 0) {
                     printf("epoll wait Master心跳 超时\n");
-                    printf("断线超时, 准备重连。\n");
+                    printf("断线超时, 启动重连功能。\n");
                     if(kill(pid, 10) == -1) {
                         perror("kill");
                     }
@@ -175,7 +171,68 @@ int main() {
         }
 
         printf("***孙子进程正在工作。。。。。。。***\n");
-        sleep(100);
+        int listen_socket = -1;
+        listen_socket = get_listen_socket(clntIP, atoi(clntPORT));
+        if(listen_socket < 0) {perror("[work] getlistensock");}
+
+        while(1) {
+			int epollfd;
+			struct epoll_event events[MAX_EVENTS];
+			epollfd = epoll_create(1);
+			add_event(epollfd, listen_socket, EPOLLIN);
+			while(1) {
+				//printf("正在 epollwait\n");
+                printf("------------------------------\n");
+				int nfds = epoll_wait(epollfd, events, MAX_EVENTS, -1);
+				printf("nfds = %d\n", nfds);
+				if (nfds == -1) { 
+                    perror("epoll_wait in work");
+                } else if (nfds == 0) {
+                    printf("WTF!in working epollwait nfds == 0\n");
+                } else {
+                    for (int i = 0; i < nfds; i++) {
+                        int now_fd = events[i].data.fd;
+                        if (now_fd == listen_socket) {
+                            int master_socket = accept_clnt(listen_socket);
+                            if (master_socket == -1) {
+                                printf("[work] 数据请求 连接失败\n");
+                                break;
+                            } else {
+                                printf("[work] 数据请求链接成功\n");
+                                add_event(epollfd, master_socket, EPOLLIN);
+                            }
+                        } else if (events[i].events & EPOLLIN) {
+                            printf("准备接受数据\n");
+                            char buff[1000];
+                            memset(buff, 0, sizeof(buff));
+                            int recv_ret = recv(now_fd, buff, sizeof(buff), 0);
+                            if(recv_ret < 0) {perror("recv");}
+                            else printf("**************recvstr : %s \n", buff);
+                            modify_event(epollfd, now_fd, EPOLLOUT);
+                        } else if(events[i].events & EPOLLOUT) {
+                            printf("准备发送数据\n");
+                            char send_str[1000];
+                            memset(send_str, 0, sizeof(send_str));
+                            sprintf(send_str, "HAHAHA,SEND_SUCCESS\n");
+                            int send_ret = send(now_fd, send_str, sizeof(send_str), 0);
+                            if (send_ret < 0) { perror("send"); }
+                            else {
+                                printf("send success!!\n");
+                                delete_event(epollfd, now_fd, 0);
+                                close(now_fd);
+                                printf("now_fd closed!\n");
+
+                            }
+                        } else {
+                            printf("不应该存在的情况\n");
+
+                        }
+
+                    }
+                }
+			}
+			close(epollfd);
+        }
     }
     
     

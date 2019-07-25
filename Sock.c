@@ -6,6 +6,14 @@ int get_socket(char *ip, int port) {
         perror("get_socket");
         return -1;
     }
+    return sock;
+}
+int get_socket_conn(char *ip, int port) {
+    int sock;
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("get_socket");
+        return -1;
+    }
     struct sockaddr_in my_addr;
     memset(&my_addr, 0, sizeof(my_addr));
     my_addr.sin_family = AF_INET;
