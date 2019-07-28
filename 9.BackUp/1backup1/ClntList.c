@@ -118,54 +118,5 @@ char *get_ip_str(clntnode *n) {
     in.s_addr = n->ip;
     return inet_ntoa(in);
 }
-ClntInfoList *copy_List(const ClntInfoList *l) {
-    ClntInfoList *ret = Clnt_Info_list_init(0);  //参数无所谓，后面被修改了
-    clntnode *p = l->head;
-    ret->clnt_num = l->clnt_num;
-    ret->maxid = l->maxid;
-    ret->my_id = l->my_id;
-    clntnode *ret_p = ret->head;
-    while (p->next) {
-        p = p->next;
-        clntnode *n = (clntnode *)malloc(sizeof(clntnode));
-        n->ip = p->ip;
-        n->id = p->id;
-        n->next = ret_p->next;
-        ret_p->next = n;
-        ret_p = n;
-    }
-    return ret;
-    /*
-    ClntInfoList *ret = Clnt_Info_list_init(0);  //参数无所谓，后面被修改了
-    clntnode *o = l->head;
-    ret->clnt_num = l->clnt_num;
-    ret->maxid = l->maxid;
-    ret->my_id = l->my_id;
-    clntnode *ret_p = ret->head;
-    while (o->next != NULL) {
-        o = o->next;
-        clntnode *n = (clntnode *)malloc(sizeof(clntnode));
-        n->id = o->ip;
-        n->id = o->id;
-        n->next = ret_p->next;
-        ret_p->next = n;
-
-        ret_p = ret_p->next;
-    }
-    ret_p->next = NULL; //感觉这句多余了
-    return ret;
-    */
-}
-void clear_List(ClntInfoList *a) {
-    if (a == NULL) return;
-    clntnode *d = a->head;
-    while(d != NULL) {
-        a->head = d->next;
-        free(d);
-        d = a->head;
-    }
-    free(a);
-    return ;
-}
 
 #endif

@@ -10,6 +10,7 @@
 #include <string.h>
 #include <errno.h>
 
+#include <sys/ioctl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -18,58 +19,233 @@
 #include <sys/types.h>
 #include <sys/epoll.h>
 #include <signal.h>
-#include "Sock.c"
+#include <pthread.h>
 #include "Common.c"
+#include "Sock.c"
 #include "Epoll.c"
 
 #define MAX_EVENTS 10
-
-int  accept_wait(int listen_socket) {
-    struct sockaddr_in client_addr;
-    socklen_t len = sizeof(client_addr);
-    printf("正在accept\n");
-    unsigned long ul = 1;
-     
-    int clnt_socket = accept(listen_socket, (struct sockaddr *)&client_addr, &len);
-    printf("accept over\n");
-    if(clnt_socket < 0) {
-        perror("accept");
-        return -1;
-    }
-    getpeername(clnt_socket, (struct sockaddr *)&client_addr, &len);
-    printf("<%s> : Login    fd = %d \n",inet_ntoa(client_addr.sin_addr), clnt_socket);
-    return clnt_socket;
+int select_conn(int sock) {
+            int flag = -1;
+            fd_set wfds; FD_ZERO(&wfds); FD_SET(sock, &wfds);
+            struct timeval tv; tv.tv_sec = 0; tv.tv_usec = 1000000;
+            int sel_ret = select(sock + 1, NULL, &wfds, NULL, &tv);
+            if(sel_ret == 0) {
+                flag = -1;
+            } else if (sel_ret > 0) {
+                int error = -1;
+                int len = sizeof(error);
+                if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, (socklen_t *)&len) < 0) {
+                    perror("getsockopt");
+                } else if (error == 0) {
+                    flag = 1;
+                } else {
+                    flag = -1;
+                }
+            }
+            return flag;
 }
-
-
-
-void grandson_lazy_connect(int tmp) {
-    printf("in grandson_lazy_connect()\n");
+void grandson_lazy_connect(int n) {
+    printf("断线重连功能开启！\n");
     int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock == -1) {perror("socket");exit(1);}
+    if (sock == -1) {perror("socket in lazy_conn");  return;}
     struct sockaddr_in serv_addr;
-    memset(&serv_addr, 0, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_addr.s_addr = inet_addr(masterIP);
-    serv_addr.sin_port = htons(atoi(masterPORT));
-    int flag = 0;
+    make_sockaddr_in(&serv_addr, masterIP, masterPORT);
+    unsigned long ul = 1;
+    ioctl(sock, FIONBIO, &ul);
     for (int i = 1;; i++) {
-        printf("[son] 第%d次尝试连接Master\n", i);
+        printf("[子][断线重连] 第%d次尝试连接Master\n", i);
         int ret = connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
-        if(ret == -1) {
-            printf("[son] 失败, 1s后进行下次尝试。。。。\n");
-            sleep(1);
-        } else if(ret == 0) {
-            printf("[son] 链接成功\n");
-            flag = 1;
-            break;
-        }
+        if (ret < 0 && errno == EINPROGRESS) {
+            int flag = select_conn(sock);
+            if (flag == -1) {
+                printf("[子][断线重连] 失败, 1s后进行下次尝试。。。。\n");  
+            } else {
+                printf("[子][断线重连] 链接成功\n");
+                close(sock);   
+                break;
+            }
+        } 
+        sleep(1);
     }
     return;
 } 
+void make_single_log(const char *cmd) {
+    printf("start make single log\n");
+    char buf[500];
+    FILE *p_tmp = fopen("./Clnt_Log_Info/Log_tmp", "a+");
+    if(p_tmp == NULL) { perror("fopen");exit(1); }
+    memset(buf, 0, sizeof(buf));
+    FILE *pp = popen(cmd, "r");
+    if(pp == NULL) { perror("popen");exit(1); }
+    fread(buf, 1, sizeof(buf), pp);
+    fwrite(buf, 1, strlen(buf), p_tmp);
+    pclose(pp);
+    fclose(p_tmp);
+}
 
+void *do_make_log_info(void *arg) {
+    char Cpu[100] = "bash ./1.ShellStuff/1.CpuLog.sh";
+
+    char Mem[100] = "bash ./1.ShellStuff/2.MemLog.sh";
+    char User[100] = "bash ./1.ShellStuff/3.User.sh";
+    char Disk[100] = "bash ./1.ShellStuff/4.Disk.sh";
+    char Dete[100] = "bash ./1.ShellStuff/5.Detection.sh";
+    char Stat[100] = "bash ./1.ShellStuff/6.State.sh";
+    int cnt = 0;
+    while (1) {
+        if (cnt == 6) {
+            make_single_log(Dete);
+        } else if (cnt == 12) {
+            make_single_log(Stat);
+            make_single_log(User);
+            make_single_log(Disk);
+            cnt = 0;
+        }
+        make_single_log(Cpu);
+        make_single_log(Mem);
+        cnt++;
+        sleep(5);
+    }
+}
+
+int do_send(int now_fd, int epollfd) {
+    //do_make_log_info();
+    char send_str[1000];
+    memset(send_str, 0, sizeof(send_str));
+    sprintf(send_str, "HAHAHA,SEND_SUCCESS\n");
+    int send_ret = send(now_fd, send_str, sizeof(send_str), 0);
+    if (send_ret < 0) { perror("send"); }
+    else {
+        printf("send success!!\n");
+        delete_event(epollfd, now_fd, 0);
+        close(now_fd);
+        printf("now_fd closed!\n");
+
+    }
+
+}
+
+int do_recv(int now_fd, int epollfd) {
+    char buff[1000];
+    memset(buff, 0, sizeof(buff));
+    int recv_ret = recv(now_fd, buff, sizeof(buff), 0);
+    if(recv_ret < 0) {perror("recv");}
+    else printf("**************recvstr : %s \n", buff);
+    modify_event(epollfd, now_fd, EPOLLOUT);
+}
+
+void do_events(int epollfd, int nfds, int listen_socket, struct epoll_event *events) {
+    for (int i = 0; i < nfds; i++) {
+        int now_fd = events[i].data.fd;
+        if (now_fd == listen_socket) {
+            int master_socket = accept_clnt(listen_socket);
+            if (master_socket == -1) {
+                printf("[work] 数据请求 连接失败\n");
+            } else {
+                printf("[work] 数据请求链接成功\n");
+                add_event(epollfd, master_socket, EPOLLIN);
+            }
+        } else if (events[i].events & EPOLLIN) {
+            printf("准备接受数据\n");
+            do_recv(now_fd, epollfd);
+        } else if(events[i].events & EPOLLOUT) {
+            printf("准备发送数据\n");
+            do_send(now_fd, epollfd);
+        } else {
+            printf("不应该存在的情况\n");
+
+        }
+    }
+}
+
+
+void first_try_connect() {
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock == -1) {perror("socket");exit(1);}
+    struct sockaddr_in serv_addr;
+    make_sockaddr_in(&serv_addr, masterIP, masterPORT);
+    int flag = -1;
+    unsigned long ul = 1;
+    ioctl(sock, FIONBIO, &ul);
+    for (int i = 1; i <= 10; i++) {
+        printf("第%d次尝试连接Master\n", i);
+        int ret = connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
+        if (ret < 0 && errno == EINPROGRESS) {
+            flag = select_conn(sock);
+            if (flag == -1) {
+                printf("[孙子][初试连接] 失败, 1s后进行下次尝试。。。。\n");  
+                sleep(1);
+            } else {
+                printf("[孙子][初试连接] 链接成功 flag = %d\n", flag);
+                close(sock);   
+                break;
+            }
+      }
+    }
+    printf("after close before check flag = %d\n", flag);
+    if (flag != 1) {
+        printf("让子进程继续尝试链接master flag = %d\n", flag);
+        if(kill(getppid(), 10) == -1) { perror("kill"); }
+    }
+    return ;
+}
+
+int heartbear_recv(int son_pid) {
+    int listen_socket = get_listen_socket(clntIP, atoi(clntHPORT));
+    if(listen_socket < 0) {perror("getlistensock"); return -1;}
+    struct epoll_event events[MAX_EVENTS];
+    int epollfd = epoll_create(1);
+    add_event(epollfd, listen_socket, EPOLLIN);
+    while(1) {
+        printf("------------------------------\n");
+        int nfds = epoll_wait(epollfd, events, MAX_EVENTS, 10000);
+        printf("nfds = %d\n", nfds);
+        if (nfds == -1) { 
+            perror("epoll_wait");
+        } else if(nfds == 0) {
+            printf("心跳断线超时, 启动重连功能。\n");
+            if(kill(son_pid, 10) == -1) {
+                perror("kill");
+            }
+        } else {
+            int master_socket = accept_clnt(listen_socket);
+            if (master_socket > 0) {
+                printf("收到心跳\n");
+                close(master_socket);
+            } else {
+                printf("心跳失败\n");
+            }
+        }
+    }
+    close(epollfd);
+    return 0;
+}
+
+void do_data_recv_send() {
+        int listen_socket = get_listen_socket(clntIP, atoi(clntPORT));
+        if(listen_socket < 0) { perror("[work] getlistensock"); }
+        int epollfd;
+        struct epoll_event events[MAX_EVENTS];
+        epollfd = epoll_create(1);
+        add_event(epollfd, listen_socket, EPOLLIN);
+        while(1) {
+            printf("------------------------------\n");
+            int nfds = epoll_wait(epollfd, events, MAX_EVENTS, -1);
+            if (nfds == -1) { 
+                perror("epoll_wait in work");
+            } else if (nfds == 0) {
+                printf("WTF!in working epollwait nfds == 0\n");
+            } else {
+                do_events(epollfd, nfds, listen_socket, events);
+            }
+        }
+        close(epollfd);
+}
+    
 int main() {
     do_clnt_config();
+    //do_make_log_info();
     printf("master IP = %s Master PORT =  %s\n", masterIP, masterPORT);
     printf("clnt IP = %s clnt PORT =  %s\n", clntIP, clntHPORT);
     printf("主进程：永远等待master发送心跳。\n");
@@ -87,157 +263,72 @@ int main() {
     if (pid == 0) my_id++;
     
     if (my_id == 0) {
-        int listen_socket = get_listen_socket(clntIP, atoi(clntHPORT));
-        if(listen_socket < 0) {perror("getlistensock"); exit(1);}
-        while(1) {
-            printf("我是老大\n");
-            
-			int epollfd;
-			struct epoll_event events[MAX_EVENTS];
-			epollfd = epoll_create(1);
-			add_event(epollfd, listen_socket, EPOLLIN);
-			while(1) {
-				//printf("正在 epollwait\n");
-                printf("------------------------------\n");
-				int nfds = epoll_wait(epollfd, events, MAX_EVENTS, 10000);
-				printf("nfds = %d\n", nfds);
-				if (nfds == -1) { 
-                    perror("epoll_wait");
-                } else if(nfds == 0) {
-                    printf("epoll wait Master心跳 超时\n");
-                    printf("断线超时, 启动重连功能。\n");
-                    if(kill(pid, 10) == -1) {
-                        perror("kill");
-                    }
-                } else {
-                    int master_socket = accept_clnt(listen_socket);
-                    if (master_socket != -1) {
-                        printf("收到心跳\n");
-                    } else {
-                        printf("心跳失败\n");
-                    }
-                    close(master_socket);
-                    printf("已经关闭mastersocket\n");
-                }
-			}
-			close(epollfd);
-
-            /*
-            char tmp[20];
-            int recv_ret = 0;
-            while((recv_ret = recv(listen_socket, tmp, sizeof(tmp), 0)) <= 0) {
-                printf("recv_ret = %d\n", recv_ret);
-            }
-            printf("对方关闭链接\n");
-            */
-        }
+        printf("[主] ：监听心跳信号\n");
+        pthread_t pthread_id;
+        pthread_create(&pthread_id, NULL, do_make_log_info, NULL);
+        heartbear_recv(pid);
     }
-    if(my_id == 1) {
-        printf("我是子进程, 在等待孙子进程告知结果\n");
+    if (my_id == 1) {
+        printf("[子] ：我是子进程, 在等待接受信号，断线重连时刻就绪\n");
         signal(10, grandson_lazy_connect);
         while(1) pause();
     }
     
     if (my_id == 2) {
-        printf("我是孙子进程\n");
-        int sock = socket(AF_INET, SOCK_STREAM, 0);
-        if (sock == -1) {perror("socket");exit(1);}
-        struct sockaddr_in serv_addr;
-        memset(&serv_addr, 0, sizeof(serv_addr));
-        serv_addr.sin_family = AF_INET;
-        serv_addr.sin_addr.s_addr = inet_addr(masterIP);
-        serv_addr.sin_port = htons(atoi(masterPORT));
-        int flag = 0;
-        for (int i = 1; i <= 10; i++) {
-            printf("第%d次尝试连接Master\n", i);
-            int ret = connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
-            if(ret == -1) {
-                printf("失败, 1s后进行下次尝试。。。。\n");
-                sleep(1);
-            } else if(ret == 0) {
-                printf("链接成功\n");
-                flag = 1;
-                break;
-            }
-        }
-        if (flag == 1) {
-            printf("***孙子进程进行本职任务***\n");
-        } else {
-            printf("让子进程继续尝试链接master\n");
-            close(sock);
-            if(kill(getppid(), 10) == -1) {
-                perror("kill");
-            }
-        }
-
-        printf("***孙子进程正在工作。。。。。。。***\n");
-        int listen_socket = -1;
-        listen_socket = get_listen_socket(clntIP, atoi(clntPORT));
-        if(listen_socket < 0) {perror("[work] getlistensock");}
-
-        while(1) {
-			int epollfd;
-			struct epoll_event events[MAX_EVENTS];
-			epollfd = epoll_create(1);
-			add_event(epollfd, listen_socket, EPOLLIN);
-			while(1) {
-				//printf("正在 epollwait\n");
-                printf("------------------------------\n");
-				int nfds = epoll_wait(epollfd, events, MAX_EVENTS, -1);
-				printf("nfds = %d\n", nfds);
-				if (nfds == -1) { 
-                    perror("epoll_wait in work");
-                } else if (nfds == 0) {
-                    printf("WTF!in working epollwait nfds == 0\n");
-                } else {
-                    for (int i = 0; i < nfds; i++) {
-                        int now_fd = events[i].data.fd;
-                        if (now_fd == listen_socket) {
-                            int master_socket = accept_clnt(listen_socket);
-                            if (master_socket == -1) {
-                                printf("[work] 数据请求 连接失败\n");
-                                break;
-                            } else {
-                                printf("[work] 数据请求链接成功\n");
-                                add_event(epollfd, master_socket, EPOLLIN);
-                            }
-                        } else if (events[i].events & EPOLLIN) {
-                            printf("准备接受数据\n");
-                            char buff[1000];
-                            memset(buff, 0, sizeof(buff));
-                            int recv_ret = recv(now_fd, buff, sizeof(buff), 0);
-                            if(recv_ret < 0) {perror("recv");}
-                            else printf("**************recvstr : %s \n", buff);
-                            modify_event(epollfd, now_fd, EPOLLOUT);
-                        } else if(events[i].events & EPOLLOUT) {
-                            printf("准备发送数据\n");
-                            char send_str[1000];
-                            memset(send_str, 0, sizeof(send_str));
-                            sprintf(send_str, "HAHAHA,SEND_SUCCESS\n");
-                            int send_ret = send(now_fd, send_str, sizeof(send_str), 0);
-                            if (send_ret < 0) { perror("send"); }
-                            else {
-                                printf("send success!!\n");
-                                delete_event(epollfd, now_fd, 0);
-                                close(now_fd);
-                                printf("now_fd closed!\n");
-
-                            }
-                        } else {
-                            printf("不应该存在的情况\n");
-
-                        }
-
-                    }
-                }
-			}
-			close(epollfd);
-        }
+        printf("[孙] ：主动连接master\n");
+        first_try_connect();
+        printf("***孙子进程开始进行数据收发工作。。。。。。。***\n");
+        do_data_recv_send();         
     }
-    
-    
-    
     return 0;
 }
 
+        /*
+        int ret = connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
+        if(ret == -1) {
+            printf("[子][断线重连] 失败, 1s后进行下次尝试。。。。\n");
+            sleep(1);
+        } else if(ret == 0) {
+            printf("[子][断线重连] 链接成功\n");
+            close(sock);   
+            break;
+        }
+        */
 
+
+
+
+/*
+int  accept_wait(int listen_socket) {
+    struct sockaddr_in client_addr;
+    socklen_t len = sizeof(client_addr);
+    printf("正在accept\n");
+    unsigned long ul = 1;
+     
+    int clnt_socket = accept(listen_socket, (struct sockaddr *)&client_addr, &len);
+    printf("accept over\n");
+    if(clnt_socket < 0) {
+        perror("accept");
+        return -1;
+    }
+    getpeername(clnt_socket, (struct sockaddr *)&client_addr, &len);
+    printf("<%s> : Login    fd = %d \n",inet_ntoa(client_addr.sin_addr), clnt_socket);
+    return clnt_socket;
+}
+*/
+
+
+        /*
+        int ret = connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
+        if (ret < 0 && errno == EINPROGRESS) {
+            int flag = select_conn(sock);
+            if (flag == -1) {
+                printf("[子][断线重连] 失败, 1s后进行下次尝试。。。。\n");  
+            } else {
+                printf("[子][断线重连] 链接成功\n");
+                close(sock);   
+                break;
+            }
+        } 
+        sleep(1);
+        */

@@ -27,6 +27,7 @@
 
 
 int Ins;
+pthread_mutex_t mutex;
 
 int do_heartbeat(clntnode *c) {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -79,29 +80,35 @@ int do_heartbeat(clntnode *c) {
 }
 
 void *heartbeat (void *arg) {
-    ClntInfoList *all_clnt = (ClntInfoList *)arg;
-    printf("5s之后开启心跳监测\n");
+    PClntInfoList *clntlist = (PClntInfoList *)arg;
+    printf("2s之后开启心跳监测\n");
     sleep(5);
     int cnt = 0;
     while(1) {
-        printf("[No. %d]子线程进行第%d次心跳遍历检测\n",all_clnt->my_id, cnt);
-        
-        clntnode *c = all_clnt->head;
-        while(c->next) {
-            //int now_id = c->next->id;
-            if (!do_heartbeat(c->next)){
-                printf("[No. %d] 删除该服务器\n", all_clnt->my_id);
-                clntnode *d = c->next;
-                c->next = c->next->next;
-                free(d);
-                continue;
-                //List_delete(all_clnt, now_id);
-            }
-            c=c->next;
-            //sleep(1);
+        printf("子线程进行第%d次心跳遍历检测\n", cnt);
+        for (int i = 0; i < Ins; i++) {
+            ClntInfoList *all_clnt = clntlist[i];
+            
+            clntnode *c = all_clnt->head;
+            while(c->next) {
+                //int now_id = c->next->id;
+                if (!do_heartbeat(c->next)){
+                    //printf("[No. %d] 删除该服务器\n", all_clnt->my_id);
+                    pthread_mutex_lock(&mutex);
+                    clntnode *d = c->next;
+                    c->next = c->next->next;
+                    clntlist[i]->clnt_num--;
+                    free(d);
+                    pthread_mutex_unlock(&mutex);
+                    continue;
+                    //List_delete(all_clnt, now_id);
+                }
+                c = c->next;
+                //sleep(1);
+            }    
         }
         //show_list(all_clnt);
-        printf("[No. %d]第%d次心跳遍历检测, OVER\n",all_clnt->my_id, cnt);
+        //printf("第%d次心跳遍历检测, OVER\n",cnt);
         printf("--------------------------------\n");
         cnt++;
         usleep(500000);
@@ -116,10 +123,14 @@ int add_clnt(int listen_socket, PClntInfoList *all_clnt) {
     getpeername(clnt_socket, (struct sockaddr *)&clnt_addr, &len);
     unsigned ip = clnt_addr.sin_addr.s_addr;
     if (!is_in_list(all_clnt, ip, Ins)) {
+        pthread_mutex_lock(&mutex);
         int min_list_id = get_min_list_id(all_clnt, Ins);
         List_add(all_clnt[min_list_id], clnt_addr.sin_addr.s_addr);
+        pthread_mutex_unlock(&mutex);
+        close(clnt_socket);
         return 1;
     } else {
+        close(clnt_socket);
         return 0;
     }
 }
@@ -128,6 +139,7 @@ void add_all_clnt(PClntInfoList *all_clnt, int Ins) {
     printf("start = %s end = %s \n", startIP, endIP);
     unsigned int startip = htonl(inet_addr(startIP));
     unsigned int endip = htonl(inet_addr(endIP));
+    pthread_mutex_lock(&mutex);
     for(unsigned i = startip; i <= endip; i++) {
         struct in_addr in;
         in.s_addr = ntohl(i);
@@ -136,6 +148,7 @@ void add_all_clnt(PClntInfoList *all_clnt, int Ins) {
         int min_list_id = get_min_list_id(all_clnt, Ins);
         all_clnt[min_list_id] = List_add(all_clnt[min_list_id], ntohl(i));
     }
+    pthread_mutex_unlock(&mutex);
     printf("%s~%s 插入完毕\n", startIP, endIP);
     for (int i = 0; i < Ins; i++) {
         printf("List %d : \n", i);
@@ -143,54 +156,170 @@ void add_all_clnt(PClntInfoList *all_clnt, int Ins) {
     }
 }
 
+int do_save_log_file(int now_fd) {
+    char buff[1000];
+    memset(buff, 0, sizeof(buff));
+    int recv_ret = recv(now_fd, buff, sizeof(buff), 0);
+    if (recv_ret < 0) { perror("recv"); return -1;}
+    if (recv_ret == 0) { printf("recv_ret == 0\n"); return -1;}
+    char filename[1000] = "./LogInfo/LogTest";
+    FILE *fp = fopen(filename, "a+");
+    int fwrite_ret = fwrite(buff, 1, strlen(buff), fp);
+    if (fwrite_ret > 0) {
+        printf("Log: 写入[%d]字节成功\n", fwrite_ret);
+    } else {
+        perror("fwrite");
+    }
+    fclose(fp);
+    return 0;
+}
+
+void *do_work (void *arg) {
+    struct epoll_event events[atoi(MAX_WORK_EVENTS) / Ins + 10];
+    
+    ClntInfoList *all_clnt = (ClntInfoList *)arg;
+    int cnt = 0;
+    int epollfd = epoll_create(1);
+    while(1) {
+        cnt++;
+        pthread_mutex_lock(&mutex);
+        ClntInfoList *tmp_list = copy_List(all_clnt);
+        int clnt_num = all_clnt->clnt_num;
+        int my_id = all_clnt->my_id;
+        pthread_mutex_unlock(&mutex);
+
+        printf("[send & recv] 开始进行第[%d]次收发: 链表[%d]共%d 个客户.\n", cnt, my_id, clnt_num);
+        if(clnt_num == 0) {
+            printf("[send & recv]当前没有用户，休息1s\n");
+            sleep(1);
+            continue;
+        }
+        clntnode *c = tmp_list->head;
+        while(1) {
+            char cnext_ip_str[100];
+            memset(cnext_ip_str, 0, sizeof(cnext_ip_str));
+            if(c->next != NULL) {
+                printf("id = %d, ip = %s\n", c->next->id, get_ip_str(c->next));
+                strcpy(cnext_ip_str, get_ip_str(c->next));
+            } else {
+                break;
+            }
+            
+            int sock = socket(AF_INET, SOCK_STREAM, 0);
+            if (sock < 0) { perror("socket in do_work"); break;}
+            struct sockaddr_in serv_addr;
+            make_sockaddr_in(&serv_addr, cnext_ip_str, clntPORT);
+            unsigned long ul = 1;
+            ioctl(sock, FIONBIO, &ul);
+            int con_ret = connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
+            add_event(epollfd, sock, EPOLLOUT);
+            while(1) {
+                int nfds = epoll_wait(epollfd, events, atoi(MAX_WORK_EVENTS), 1000);
+                if(nfds == -1) {
+                    perror("epoll_wait in do_work");
+                } else if(nfds == 0) {
+                    printf("[send & recv] <%s>%d ：epoll wait do_work 超时,跳过该客户。\n",cnext_ip_str, sock);
+                } else {
+                    if (events[0].events & EPOLLOUT) {
+                        char sendstr[] = "hello--from_master";
+                        int send_ret = send(sock, sendstr, sizeof(sendstr), 0);
+                        if (send_ret <= 0) {
+                            if (send_ret < 0)perror("send"); else { printf("send_ret==0\n"); } 
+                            delete_event(epollfd, sock, 0);
+                            close(sock);
+                            sleep(1);
+                            break;
+                        }
+                        printf("[send & recv] <%s>%d ： send success！\n",cnext_ip_str, sock);
+                        modify_event(epollfd, sock, EPOLLIN);
+                        continue;
+                    } else if(events[0].events & EPOLLIN) {
+                        if (do_save_log_file(sock) < 0) {
+                            delete_event(epollfd, sock, 0);
+                            close(sock);
+                            sleep(1);
+                            break;
+                        }
+                        printf("[send & recv] <%s>%d ： save success！\n",cnext_ip_str, sock);
+                    }
+                }
+                delete_event(epollfd, sock, 0);
+                close(sock);
+                printf("[send & recv] <%s>%d ： clear success！\n",cnext_ip_str, sock);
+                sleep(1);  //1s收发一次
+                break;
+            }
+            c = c->next;
+        }
+    clear_List(tmp_list);
+    }
+}
 int main() {
+    pthread_mutex_init(&mutex, NULL);
     do_master_config();
     Ins = atoi(INS);
     printf("Ins = %d\n", Ins);
     PClntInfoList *clnt_list;
     clnt_list=all_init(Ins);
-    //all_clnt = Clnt_Info_list_init();
     
     add_all_clnt(clnt_list, Ins);
-    pthread_t pthread_id[Ins];
+    pthread_t pthread_id[Ins + 1];
+	pthread_create(&pthread_id[Ins], NULL, heartbeat, clnt_list);
     for(int i = 0; i < Ins; i++) {
-	    pthread_create(&pthread_id[i], NULL, heartbeat, clnt_list[i]);
+	    pthread_create(&pthread_id[i], NULL, do_work, clnt_list[i]);
     }
     int listen_socket = get_listen_socket(masterIP, atoi(masterPORT));
-    if (listen_socket < 0) exit(1);
-    int epollfd;
+    if (listen_socket < 0) { perror("get_listen_socket in main"); exit(1); } 
     struct epoll_event events[atoi(MAX_EVENTS)];
-    epollfd = epoll_create(1);
+    int epollfd = epoll_create(1);
     add_event(epollfd, listen_socket, EPOLLIN);
     while(1) {
-        printf("正在 epollwait\n");
         int nfds = epoll_wait(epollfd, events, atoi(MAX_EVENTS), -1);
         printf("nfds = %d\n", nfds);
         if (nfds == -1) {
             perror("epoll_wait");
         }
         if (add_clnt(listen_socket, clnt_list) == 1) {
-            printf("加入成功\n");
+            printf("[main] 新客户端加入成功\n");
         } else {
-            printf("该客户端已存在\n");
+            printf("[main] 该客户端已存在\n");
         }
     }
+
     close(epollfd);
+    for(int i = 0; i <= Ins; i++) {
+        pthread_join(pthread_id[i], NULL);
+    }
+    pthread_mutex_destroy(&mutex);
 	return 0;	
 }
 
 
+
+
+
         /*
-        for(int i = 0; i < nfds; i++) {
-            //int now_fd = events[i].data.fd;
-            //printf("收到信号！ fd = %d \n", now_fd);
-            //if(now_fd == listen_socket) {
-            clnt_socket = accept_clnt(listen_socket);
-            printf("accept 成功, 加入链表。\n");
-            struct sockaddr_in clnt_addr;
-            socklen_t len = sizeof(clnt_addr);
-            getpeername(clnt_socket, (struct sockaddr *)&clnt_addr, &len);
-            List_add(all_clnt, clnt_addr.sin_addr.s_addr);
-            //}
+        while(1) {
+            int nfds = epoll_wait(epollfd, events, atoi(MAX_WORK_EVENTS), 5000);
+            if(nfds == -1) {
+                perror("epoll_wait in do_work");
+            } else if(nfds == 0) {
+                printf("epoll wait do_work 超时,一轮收发完毕！\n");
+                printf("更新用户并进行下一次收发\n");
+                break;
+            }
+            for (int i = 0; i < nfds; i++) {
+                int now_fd = events[i].data.fd;
+                if (events[i].events & EPOLLOUT) {
+                    char sendstr[] = "hello--from_master";
+                    if (send(now_fd, sendstr, sizeof(sendstr), 0) <= 0) { perror("send"); }
+                    modify_event(epollfd, now_fd, EPOLLIN);
+                } else if(events[i].events & EPOLLIN) {
+                    do_save_log_file(now_fd);
+                    delete_event(epollfd, now_fd, 0);
+                    close(now_fd);
+                }
+            }
         }
-        */
+        close(epollfd);
+    */

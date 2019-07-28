@@ -118,5 +118,35 @@ char *get_ip_str(clntnode *n) {
     in.s_addr = n->ip;
     return inet_ntoa(in);
 }
+ClntInfoList *copy_List(const ClntInfoList *l) {
+    ClntInfoList *ret = Clnt_Info_list_init(0);  //参数无所谓，后面被修改了
+    clntnode *p = l->head;
+    ret->clnt_num = l->clnt_num;
+    ret->maxid = l->maxid;
+    ret->my_id = l->my_id;
+    clntnode *ret_p = ret->head;
+    while (p->next) {
+        p = p->next;
+        clntnode *n = (clntnode *)malloc(sizeof(clntnode));
+        n->ip = p->ip;
+        n->id = p->id;
+        n->next = ret_p->next;
+        ret_p->next = n;
+        ret_p = n;
+    }
+    return ret;
+    
+}
+void clear_List(ClntInfoList *a) {
+    if (a == NULL) return;
+    clntnode *d = a->head;
+    while(d) {
+        a->head = d->next;
+        free(d);
+        d = a->head;
+    }
+    free(a);
+    return ;
+}
 
 #endif

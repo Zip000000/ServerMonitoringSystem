@@ -1,6 +1,22 @@
 #ifndef MySock
 #define MySock
+
+void make_sockaddr_in(struct sockaddr_in *addr, char *ip, char *port) {
+
+    memset(addr, 0, sizeof(struct sockaddr_in));
+    addr->sin_family = AF_INET;
+    addr->sin_addr.s_addr = inet_addr(ip);
+    addr->sin_port = htons(atoi(port));
+}
 int get_socket(char *ip, int port) {
+    int sock;
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("get_socket");
+        return -1;
+    }
+    return sock;
+}
+int get_socket_conn(char *ip, int port) {
     int sock;
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("get_socket");
