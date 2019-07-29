@@ -257,7 +257,8 @@ void *do_work (void *arg) {
             }
             c = c->next;
         }
-    //clear_List(tmp_list);
+    clear_List(tmp_list);
+    //这里不注释吧？？？？？？
     }
 }
 int main() {
