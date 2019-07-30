@@ -16,5 +16,10 @@ ClntPORT=6666
 ClntHPORT=7000
 Clnt_MAX_EVENTS=2
 
-//心跳时间间隔
+//一轮心跳的时间间隔
 HeartbeatTimeout=500000
+//开启断线重连的自检失败次数
+ReconnTimes=10
+
+//积累多少条数据再写入文件
+WriteTimes=5

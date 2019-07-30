@@ -20,31 +20,42 @@
 #include <sys/epoll.h>
 #include <signal.h>
 #include <pthread.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 #include "Common.c"
 #include "Sock.c"
 #include "Epoll.c"
 
 #define MAX_DATA 1024
 #define MAX_EVENTS 10
+#define ReconnTimes 10
+
+struct sm_msg {
+    int heartbeat_flag;
+    int makeinfo_times;
+    double para_for_Mem;
+    int Reconn_pid;
+} *msg;
+
 int select_conn(int sock) {
-            int flag = -1;
-            fd_set wfds; FD_ZERO(&wfds); FD_SET(sock, &wfds);
-            struct timeval tv; tv.tv_sec = 0; tv.tv_usec = 1000000;
-            int sel_ret = select(sock + 1, NULL, &wfds, NULL, &tv);
-            if(sel_ret == 0) {
-                flag = -1;
-            } else if (sel_ret > 0) {
-                int error = -1;
-                int len = sizeof(error);
-                if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, (socklen_t *)&len) < 0) {
-                    perror("getsockopt");
-                } else if (error == 0) {
-                    flag = 1;
-                } else {
-                    flag = -1;
-                }
-            }
-            return flag;
+    int flag = -1;
+    fd_set wfds; FD_ZERO(&wfds); FD_SET(sock, &wfds);
+    struct timeval tv; tv.tv_sec = 0; tv.tv_usec = 1000000;
+    int sel_ret = select(sock + 1, NULL, &wfds, NULL, &tv);
+    if(sel_ret == 0) {
+        flag = -1;
+    } else if (sel_ret > 0) {
+        int error = -1;
+        int len = sizeof(error);
+        if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, (socklen_t *)&len) < 0) {
+            perror("getsockopt");
+        } else if (error == 0) {
+            flag = 1;
+        } else {
+            flag = -1;
+        }
+    }
+    return flag;
 }
 void grandson_lazy_connect(int n) {
     printf("断线重连功能开启！\n");
@@ -72,7 +83,7 @@ void grandson_lazy_connect(int n) {
     return;
 } 
 typedef struct singleData {
-    char buf[256];
+    char buf[1024];
 } singleData;
 typedef struct Data {
     char cmd[256];
@@ -111,7 +122,7 @@ void *do_make_log_info(void *arg) {
     memset(&Dete, 0, sizeof(Cpu));
     memset(&Stat, 0, sizeof(Cpu));
     strcpy(Cpu.cmd, "bash ./1.ShellStuff/1.CpuLog.sh");
-    strcpy(Mem.cmd, "bash ./1.ShellStuff/2.MemLog.sh");
+    sprintf(Mem.cmd, "bash ./1.ShellStuff/2.MemLog.sh %lf", msg->para_for_Mem);
     strcpy(User.cmd, "bash ./1.ShellStuff/3.User.sh");
     strcpy(Disk.cmd, "bash ./1.ShellStuff/4.Disk.sh");
     strcpy(Dete.cmd, "bash ./1.ShellStuff/5.Detection.sh");
@@ -123,7 +134,7 @@ void *do_make_log_info(void *arg) {
     strcpy(Dete.savePath, "./Clnt_LogInfo/Log_Dete");
     strcpy(Stat.savePath, "./Clnt_LogInfo/Log_Stat");
     Cpu.cnt = Mem.cnt = User.cnt = Disk.cnt = Dete.cnt = Stat.cnt = 0;
-    int cnt = 0;
+
     while (1) {
         make_single_log(&Cpu);
         make_single_log(&Mem);
@@ -131,7 +142,17 @@ void *do_make_log_info(void *arg) {
         make_single_log(&Disk);
         make_single_log(&Dete);
         make_single_log(&Stat);
-        sleep(2);
+        //printf("运行了 %d 次脚本\n", msg->makeinfo_times);
+        if (msg->heartbeat_flag != 0) {
+            msg->makeinfo_times++;
+            printf("断线 %d 次\n", msg->makeinfo_times);
+            if (msg->makeinfo_times >= ReconnTimes) {
+                printf("断线超过 自检十次的时间！Reconnect!\n");
+                if(kill(msg->Reconn_pid, 10) == -1) { perror("kill");}
+                msg->makeinfo_times = 0;
+            }
+        }
+        sleep(5);
         /*
         if (cnt == 6) {
             make_single_log(Dete, Log_Dete);
@@ -160,9 +181,7 @@ int do_send(int now_fd, int epollfd) {
         delete_event(epollfd, now_fd, 0);
         close(now_fd);
         printf("now_fd closed!\n");
-
     }
-
 }
 
 int do_recv(int now_fd, int epollfd) {
@@ -193,11 +212,9 @@ void do_events(int epollfd, int nfds, int listen_socket, struct epoll_event *eve
             do_send(now_fd, epollfd);
         } else {
             printf("不应该存在的情况\n");
-
         }
     }
 }
-
 
 void first_try_connect() {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -220,17 +237,16 @@ void first_try_connect() {
                 close(sock);   
                 break;
             }
-      }
+        }
     }
-    printf("after close before check flag = %d\n", flag);
     if (flag != 1) {
-        printf("让子进程继续尝试链接master flag = %d\n", flag);
-        if(kill(getppid(), 10) == -1) { perror("kill"); }
+        //printf("让子进程继续尝试链接master flag = %d\n", flag);
+        //if(kill(getppid(), 10) == -1) { perror("kill"); }
     }
     return ;
 }
 
-int heartbeat_recv(int son_pid) {
+int heartbeat_recv() {
     int listen_socket = get_listen_socket(clntIP, atoi(clntHPORT));
     if(listen_socket < 0) {perror("getlistensock"); return -1;}
     struct epoll_event events[MAX_EVENTS];
@@ -238,22 +254,25 @@ int heartbeat_recv(int son_pid) {
     add_event(epollfd, listen_socket, EPOLLIN);
     while(1) {
         printf("------------------------------\n");
-        int nfds = epoll_wait(epollfd, events, MAX_EVENTS, 10000);
-        printf("nfds = %d\n", nfds);
+        int nfds = epoll_wait(epollfd, events, MAX_EVENTS, 1000);
         if (nfds == -1) { 
             perror("epoll_wait");
         } else if (nfds == 0) {
-            printf("心跳断线超时, 启动重连功能。\n");
+            msg->heartbeat_flag = 1;
+            /*
             if (kill(son_pid, 10) == -1) {
                 perror("kill");
             }
+            */
         } else {
             int master_socket = accept_clnt(listen_socket);
             if (master_socket > 0) {
-                printf("收到心跳\n");
+                //printf("收到心跳\n");
                 close(master_socket);
+                msg->heartbeat_flag = 0;
             } else {
                 printf("心跳失败\n");
+                msg->heartbeat_flag = 1;
             }
         }
     }
@@ -289,6 +308,13 @@ int main() {
     printf("主进程：永远等待master发送心跳。\n");
     printf("子进程：若孙子线程十次失败，子线程父承子业。成功则kill孙子进程。\n");
     printf("孙子进程：主动链接master上限十次。之后无论成功失败都执行client本职任务。\n");
+    
+    int shmid = shmget(IPC_PRIVATE, sizeof(struct sm_msg), IPC_CREAT | 0666);
+    if (shmid < 0) { perror("shmget"); exit(1); }
+    msg = shmat(shmid, NULL, 0);
+    msg->heartbeat_flag = 0;
+    msg->makeinfo_times = 0;
+    msg->para_for_Mem = 0;
 
 	pid_t pid;
 	int my_id = 0;
@@ -300,10 +326,11 @@ int main() {
     if (pid == 0) my_id++;
     
     if (my_id == 0) {
+        msg->Reconn_pid = pid;
         printf("[主] pid = %d ：监听心跳信号\n", getpid());
         pthread_t pthread_id;
         pthread_create(&pthread_id, NULL, do_make_log_info, NULL);
-        heartbeat_recv(pid);
+        heartbeat_recv();
     } else if (my_id == 1) {
         printf("[子] pid = %d ：我是子进程, 在等待接受信号，断线重连时刻就绪\n", getpid());
         signal(10, grandson_lazy_connect);

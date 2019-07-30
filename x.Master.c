@@ -25,6 +25,8 @@
 #include "Epoll.c"
 #include "Common.c"
 
+#define Send_Recv_Time 10
+
 
 int Ins;
 pthread_mutex_t mutex;
@@ -243,7 +245,7 @@ void *do_work (void *arg) {
                 delete_event(epollfd, sock, 0);
                 close(sock);
                 printf("[send & recv] <%s>%d ： clear success！\n",cnext_ip_str, sock);
-                sleep(1);  //1s收发一次
+                sleep(Send_Recv_Time);  //1s收发一次
                 break;
             }
             c = c->next;
