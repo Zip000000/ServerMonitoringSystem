@@ -37,13 +37,10 @@ int do_heartbeat(clntnode *c) {
     char *c_ip_str = get_ip_str(c);
     serv_addr.sin_addr.s_addr = inet_addr(c_ip_str);
     serv_addr.sin_port = htons(atoi(clntHPORT));
-    //printf("clntHPORT = %s\n", clntHPORT);
     unsigned long ul = 1;
     ioctl(sock, FIONBIO, &ul);
     int con_ret = connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
-    //perror("connect");
     int heartbeatflag = 0;
-
     if (con_ret < 0 && errno == EINPROGRESS) {
     //if (con_ret < 0) {
         fd_set wfds;
@@ -83,15 +80,14 @@ void *heartbeat (void *arg) {
     PClntInfoList *clntlist = (PClntInfoList *)arg;
     printf("2s之后开启心跳监测\n");
     sleep(5);
-    int cnt = 0;
+    long long cnt = 0;
     while(1) {
-        printf("子线程进行第%d次心跳遍历检测\n", cnt);
+        printf("子线程进行第%lld次心跳遍历检测\n", cnt);
         for (int i = 0; i < Ins; i++) {
             ClntInfoList *all_clnt = clntlist[i];
             
             clntnode *c = all_clnt->head;
             while(c->next) {
-                //int now_id = c->next->id;
                 if (!do_heartbeat(c->next)){
                     //printf("[No. %d] 删除该服务器\n", all_clnt->my_id);
                     pthread_mutex_lock(&mutex);
@@ -104,14 +100,12 @@ void *heartbeat (void *arg) {
                     //List_delete(all_clnt, now_id);
                 }
                 c = c->next;
-                //sleep(1);
             }    
         }
         //show_list(all_clnt);
-        //printf("第%d次心跳遍历检测, OVER\n",cnt);
         printf("--------------------------------\n");
         cnt++;
-        usleep(500000);
+        usleep(atoi(HeartbeatTimeout));
     }
 }
 int add_clnt(int listen_socket, PClntInfoList *all_clnt) {
@@ -157,13 +151,12 @@ void add_all_clnt(PClntInfoList *all_clnt, int Ins) {
 }
 
 int do_save_log_file(int now_fd) {
-
-    char buff[1000];
+    char buff[1024];
     memset(buff, 0, sizeof(buff));
     int recv_ret = recv(now_fd, buff, sizeof(buff), 0);
     if (recv_ret < 0) { perror("recv"); return -1;}
     if (recv_ret == 0) { printf("recv_ret == 0\n"); return -1;}
-    char filename[1000] = "./LogInfo/LogTest";
+    char filename[1000] = "./Master_LogInfo/LogTest";
     FILE *fp = fopen(filename, "a+");
     if (fp == NULL) {perror("fopen"); return -1;}
     int fwrite_ret = fwrite(buff, 1, strlen(buff), fp);
@@ -180,19 +173,17 @@ void *do_work (void *arg) {
     struct epoll_event events[atoi(MAX_WORK_EVENTS) / Ins + 10];
     
     ClntInfoList *all_clnt = (ClntInfoList *)arg;
-    int cnt = 0;
+    long long cnt = 0;
     int epollfd = epoll_create(1);
     while(1) {
         cnt++;
         pthread_mutex_lock(&mutex);
-        printf("开始copy tmplist\n");
         ClntInfoList *tmp_list = copy_List(all_clnt);
-        printf("结束copy tmplist\n");
         int clnt_num = all_clnt->clnt_num;
         int my_id = all_clnt->my_id;
         pthread_mutex_unlock(&mutex);
 
-        printf("[send & recv] 开始进行第[%d]次收发: 链表[%d]共%d 个客户.\n", cnt, my_id, clnt_num);
+        printf("[send & recv] 开始进行第[%lld]次收发: 链表[%d]共%d 个客户.\n", cnt, my_id, clnt_num);
         if(clnt_num == 0) {
             printf("[send & recv]当前没有用户，休息1s\n");
             sleep(1);
@@ -300,33 +291,3 @@ int main() {
     pthread_mutex_destroy(&mutex);
 	return 0;	
 }
-
-
-
-
-
-        /*
-        while(1) {
-            int nfds = epoll_wait(epollfd, events, atoi(MAX_WORK_EVENTS), 5000);
-            if(nfds == -1) {
-                perror("epoll_wait in do_work");
-            } else if(nfds == 0) {
-                printf("epoll wait do_work 超时,一轮收发完毕！\n");
-                printf("更新用户并进行下一次收发\n");
-                break;
-            }
-            for (int i = 0; i < nfds; i++) {
-                int now_fd = events[i].data.fd;
-                if (events[i].events & EPOLLOUT) {
-                    char sendstr[] = "hello--from_master";
-                    if (send(now_fd, sendstr, sizeof(sendstr), 0) <= 0) { perror("send"); }
-                    modify_event(epollfd, now_fd, EPOLLIN);
-                } else if(events[i].events & EPOLLIN) {
-                    do_save_log_file(now_fd);
-                    delete_event(epollfd, now_fd, 0);
-                    close(now_fd);
-                }
-            }
-        }
-        close(epollfd);
-    */
