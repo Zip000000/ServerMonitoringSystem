@@ -239,10 +239,12 @@ void first_try_connect() {
             }
         }
     }
+    /*
     if (flag != 1) {
         //printf("让子进程继续尝试链接master flag = %d\n", flag);
         //if(kill(getppid(), 10) == -1) { perror("kill"); }
     }
+    */
     return ;
 }
 
