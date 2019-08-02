@@ -19,6 +19,7 @@
 #include <signal.h>
 #include <pthread.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 
 #include "Sock.c"
 #include "ClntList.c"
@@ -30,6 +31,13 @@
 
 int Ins;
 pthread_mutex_t mutex;
+
+typedef struct LogInfo {
+    int flag;
+    char buf[1024];
+    char tail[10];
+} LogInfo;
+LogInfo loginfo;
 
 int do_heartbeat(clntnode *c) {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -153,22 +161,55 @@ void add_all_clnt(PClntInfoList *all_clnt, int Ins) {
 }
 
 int do_save_log_file(int now_fd) {
-    char buff[1024];
-    memset(buff, 0, sizeof(buff));
-    int recv_ret = recv(now_fd, buff, sizeof(buff), 0);
-    if (recv_ret < 0) { perror("recv"); return -1;}
-    if (recv_ret == 0) { printf("recv_ret == 0\n"); return -1;}
-    char filename[1000] = "./Master_LogInfo/LogTest";
-    FILE *fp = fopen(filename, "a+");
-    if (fp == NULL) {perror("fopen"); return -1;}
-    int fwrite_ret = fwrite(buff, 1, strlen(buff), fp);
-    if (fwrite_ret > 0) {
-        printf("Log: 写入[%d]字节成功\n", fwrite_ret);
-    } else {
-        perror("fwrite");
+    int ret = 0;
+    
+    struct sockaddr_in addr;
+    socklen_t addrlen = sizeof(addr);
+    getpeername(now_fd, (struct sockaddr *)&addr, &addrlen);
+    char *ipPath = inet_ntoa(addr.sin_addr);
+    char logDir[100];
+    sprintf(logDir, "./Master_LogInfo/%s", ipPath);
+    mkdir(logDir, 0777);
+    printf("logDir : %s\n", logDir);
+    while (1) {
+        memset(&loginfo, 0, sizeof(loginfo));
+        int recv_ret = recv(now_fd, &loginfo, sizeof(loginfo), 0);
+        while (recv_ret == -1 && errno == EAGAIN) {
+            recv_ret = recv(now_fd, &loginfo, sizeof(loginfo), 0);
+            //printf("尝试recv!-------------------------------\n");
+        }
+        if (recv_ret < 0) { perror("recv after judge"); ret = -1; break;}
+        
+        char filename[1000] = {0};
+        switch (loginfo.flag) {
+            case 0:sprintf(filename, "%s/Save_Log_Cpu", logDir); break;
+            case 1:sprintf(filename, "%s/Save_Log_Mem", logDir); break;
+            case 2:sprintf(filename, "%s/Save_Log_User",logDir); break;
+            case 3:sprintf(filename, "%s/Save_Log_Disk",logDir); break;
+            case 4:sprintf(filename, "%s/Save_Log_Dete",logDir); break;
+            case 5:sprintf(filename, "%s/Save_Log_Stat",logDir); break;
+            case 100:printf("收到结束包\n"); return 0;
+            default: 
+            printf("\033[31m收到异常包\033[0m\n");strcpy(filename, "./Master_LogInfo/tmp"); break;
+        }
+        FILE *fp = fopen(filename, "a+");
+        if (fp == NULL) { perror("fopen a+"); return -1; }
+        printf("包：flag = %d \n buf = %s\n", loginfo.flag, loginfo.buf);
+        if (recv_ret == 0) { printf("recv_ret == 0\n"); break;}
+        if (recv_ret != 0 ) {
+            int writenum = (strlen(loginfo.buf) > 1024 ? 1024 : strlen(loginfo.buf));
+            int fwrite_ret = fwrite(loginfo.buf, 1, writenum, fp);
+            if (fwrite_ret >= 0) {
+                printf("Log: 写入[%d]字节成功\n", fwrite_ret);
+            } else {
+                perror("fwrite");
+            }
+        } else {
+            printf("空文件跳过\n");
+        }
+        fclose(fp);
     }
-    fclose(fp);
-    return 0;
+    return ret;
 }
 
 void *do_work (void *arg) {
@@ -210,6 +251,11 @@ void *do_work (void *arg) {
             unsigned long ul = 1;
             ioctl(sock, FIONBIO, &ul);
             int con_ret = connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
+            if (con_ret < 0 && errno == EINPROGRESS) {
+                printf("connect in send : normal\n");
+            } else {
+                perror("connect in send");
+            }
             add_event(epollfd, sock, EPOLLOUT);
             while(1) {
                 int nfds = epoll_wait(epollfd, events, atoi(MAX_WORK_EVENTS), 1000);
@@ -219,10 +265,12 @@ void *do_work (void *arg) {
                     printf("[send & recv] <%s>%d ：epoll wait do_work 超时,跳过该客户。\n",cnext_ip_str, sock);
                 } else {
                     if (events[0].events & EPOLLOUT) {
-                        char sendstr[] = "hello--from_master";
-                        int send_ret = send(sock, sendstr, sizeof(sendstr), 0);
+                        char sendstr[] = "I want you!!!give it to me!!!";
+                        printf("开始准备发送！\n");
+                        int send_ret = send(sock, sendstr, strlen(sendstr), 0);
+                        printf("发送结束\n");
                         if (send_ret <= 0) {
-                            if (send_ret < 0)perror("send"); else { printf("send_ret==0\n"); } 
+                            if (send_ret < 0) perror("send in do work"); else { printf("send_ret==0\n"); } 
                             delete_event(epollfd, sock, 0);
                             close(sock);
                             sleep(1);
@@ -234,6 +282,7 @@ void *do_work (void *arg) {
                     } else if(events[0].events & EPOLLIN) {
                         printf("准备recv！！！！\n");
                         if (do_save_log_file(sock) < 0) {
+                            printf("\n\nPlease dont be here!!!!!!!!!!!!!!!!!!!!\n\n");
                             delete_event(epollfd, sock, 0);
                             close(sock);
                             sleep(1);

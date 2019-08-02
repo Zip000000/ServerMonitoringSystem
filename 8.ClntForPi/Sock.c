@@ -60,9 +60,9 @@ int get_listen_socket(char *ip, int port) {
 int  accept_clnt(int listen_socket) {
     struct sockaddr_in client_addr;
     socklen_t len = sizeof(client_addr);
-    printf("正在accept\n");
+    //printf("正在accept\n");
     int clnt_socket = accept(listen_socket, (struct sockaddr *)&client_addr, &len);
-    printf("accept over\n");
+    //printf("accept over\n");
     if(clnt_socket < 0) {
         perror("accept");
         return -1;

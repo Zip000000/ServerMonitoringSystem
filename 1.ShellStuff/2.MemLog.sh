@@ -12,7 +12,10 @@ MemLeft=`echo "${MemValue[1]}-${MemValue[0]}" | bc`
 
 MemAvaPrec=`echo "scale=1;${MemValue[0]}*100/${MemValue[1]}" | bc`
 
-DyAver=`echo "scale=1;${DyAver}*0.3+${MemAvaPrec}*0.7" | bc`
+#DyAver=`echo "scale=1;${DyAver}*0.3+${MemAvaPrec}*0.7" | bc`
+DyAver=`echo "${DyAver} ${MemAvaPrec}" | awk  '{printf("%.2f", $1 * 0.3 + $2 * 0.7)}'`
+
 
 
 echo "${date} ${MemValue[1]}M ${MemLeft}M ${MemAvaPrec}% ${DyAver}%"
+echo "${DyAver}"

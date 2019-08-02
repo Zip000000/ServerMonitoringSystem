@@ -22,6 +22,7 @@
 #include <pthread.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <sys/file.h>
 #include "Common.c"
 #include "Sock.c"
 #include "Epoll.c"
@@ -36,6 +37,13 @@ struct sm_msg {
     double para_for_Mem;
     int Reconn_pid;
 } *msg;
+
+typedef struct LogInfo {
+    int flag;
+    char buf[1024];
+    char tail[10];
+} LogInfo;
+LogInfo loginfo;
 
 int select_conn(int sock) {
     int flag = -1;
@@ -86,6 +94,7 @@ typedef struct singleData {
     char buf[1024];
 } singleData;
 typedef struct Data {
+    int my_id;
     char cmd[256];
     char savePath[256];
     singleData sd[5];
@@ -97,13 +106,24 @@ void make_single_log(struct Data *data) {
     FILE *pp = popen(data->cmd, "r");
     if(pp == NULL) { perror("popen"); return ;}
     char *dt_buf = data->sd[data->cnt].buf;
-    fread(dt_buf, 1, MAX_DATA, pp);
+    char tmp_para[100];
+    if (data->my_id == 2) {
+        size_t len = 1024;
+        getline(&dt_buf, &len, pp);
+        size_t n = 100;
+        fread(tmp_para, 1, MAX_DATA, pp);
+        //printf("得到的参数是：%lf\n", atof(tmp_para));
+        msg->para_for_Mem = atof(tmp_para);
+    } else {
+        fread(dt_buf, 1, MAX_DATA, pp);
+    }
     pclose(pp);
     //printf("cnt = %d : %s\n", data->cnt, data->sd[data->cnt].buf);
     data->cnt++;
-    if(data->cnt < 5) return;
+    if(data->cnt < 1) return;
     printf("累计五次信息，准备写入\n");
     FILE *p_tmp = fopen(data->savePath, "a+");
+    flock(p_tmp->_fileno, LOCK_EX);
     if(p_tmp == NULL) { perror("fopen");return; }
     for (int i = 0; i < 5; i++) {
         //printf("i = %d, strlen = %ld\n", i, strlen(data->sd[i].buf));
@@ -112,6 +132,7 @@ void make_single_log(struct Data *data) {
     memset(data->sd, 0, 5 * sizeof(singleData));
     data->cnt = 0;
     fclose(p_tmp);
+    flock(p_tmp->_fileno, LOCK_UN);
 }
 void *do_make_log_info(void *arg) {
     Data Cpu, Mem, User, Disk, Dete, Stat;
@@ -121,8 +142,9 @@ void *do_make_log_info(void *arg) {
     memset(&Disk, 0, sizeof(Cpu));
     memset(&Dete, 0, sizeof(Cpu));
     memset(&Stat, 0, sizeof(Cpu));
+    Cpu.my_id = 1; Mem.my_id = 2; User.my_id = 3;
+    Disk.my_id = 4; Dete.my_id = 5; Stat.my_id = 6;
     strcpy(Cpu.cmd, "bash ./1.ShellStuff/1.CpuLog.sh");
-    strcpy(Mem.cmd, "bash ./1.ShellStuff/2.MemLog.sh");
     strcpy(User.cmd, "bash ./1.ShellStuff/3.User.sh");
     strcpy(Disk.cmd, "bash ./1.ShellStuff/4.Disk.sh");
     strcpy(Dete.cmd, "bash ./1.ShellStuff/5.Detection.sh");
@@ -136,28 +158,24 @@ void *do_make_log_info(void *arg) {
     Cpu.cnt = Mem.cnt = User.cnt = Disk.cnt = Dete.cnt = Stat.cnt = 0;
 
     while (1) {
-        printf("1\n");
+        sprintf(Mem.cmd, "bash ./1.ShellStuff/2.MemLog.sh %lf", msg->para_for_Mem);
         make_single_log(&Cpu);
-        printf("2\n");
         make_single_log(&Mem);
-        printf("3\n");
         make_single_log(&User);
-        printf("4\n");
         make_single_log(&Disk);
-        printf("5\n");
         make_single_log(&Dete);
-        printf("6\n");
         make_single_log(&Stat);
         //printf("运行了 %d 次脚本\n", msg->makeinfo_times);
         if (msg->heartbeat_flag != 0) {
             msg->makeinfo_times++;
+            printf("断线 %d 次\n", msg->makeinfo_times);
             if (msg->makeinfo_times >= ReconnTimes) {
                 printf("断线超过 自检十次的时间！Reconnect!\n");
                 if(kill(msg->Reconn_pid, 10) == -1) { perror("kill");}
                 msg->makeinfo_times = 0;
             }
         }
-        sleep(5);
+        sleep(1);
         /*
         if (cnt == 6) {
             make_single_log(Dete, Log_Dete);
@@ -175,8 +193,50 @@ void *do_make_log_info(void *arg) {
     }
 }
 int do_send(int now_fd, int epollfd) {
-    //do_make_log_info();
-    char send_str[1024];
+    char filename[6][256];
+    memset(filename, 0, sizeof(filename));
+    strcpy(filename[0], "./Clnt_LogInfo/Log_Cpu");
+    strcpy(filename[1], "./Clnt_LogInfo/Log_Mem");
+    strcpy(filename[2], "./Clnt_LogInfo/Log_User");
+    strcpy(filename[3], "./Clnt_LogInfo/Log_Disk");
+    strcpy(filename[4], "./Clnt_LogInfo/Log_Dete");
+    strcpy(filename[5], "./Clnt_LogInfo/Log_Stat");
+    for (int i = 0; i < 6; i++) {
+        printf("文件 %d 开始发送！\n", i);
+        FILE *fp = fopen(filename[i], "r");
+        if (fp == NULL) perror("fopen i");
+        flock(fp->_fileno, LOCK_EX);
+        int cnt = 0;
+        while(1) {
+            printf("while1 第 %d 次发送：", cnt++);
+            memset(&loginfo, 0, sizeof(loginfo));
+            int read_ret = fread(loginfo.buf, 1, 1024, fp);
+            if (read_ret < 0) perror("fread in while1");
+            if (read_ret == 0) break;
+            loginfo.flag = i;
+            printf("包：flag = %d, buf = \n%s\n", loginfo.flag, loginfo.buf);
+            int send_ret = send(now_fd, &(loginfo), sizeof(loginfo), 0);
+            if (send_ret < 0) perror("send in while1");
+            if (send_ret == 0) break;
+        }
+        printf("文件 %d 发送成功！\n", i);
+        fclose(fp);
+        FILE *clear = fopen(filename[i], "w");
+        if (fp == NULL) perror("fopen clear");
+        fclose(clear);
+        flock(fp->_fileno, LOCK_UN);
+    }
+    loginfo.flag = 100;
+    int send_ret = send(now_fd, &(loginfo), sizeof(loginfo), 0);
+    if (send_ret < 0) perror("send in while1");
+    printf("send success!!\n");
+    delete_event(epollfd, now_fd, 0);
+    close(now_fd);
+    printf("now_fd closed!\n");
+}
+/*
+int do_send(int now_fd, int epollfd) {
+    char send_str[1000];
     memset(send_str, 0, sizeof(send_str));
     sprintf(send_str, "HAHAHA,SEND_SUCCESS\n");
     int send_ret = send(now_fd, send_str, sizeof(send_str), 0);
@@ -188,12 +248,12 @@ int do_send(int now_fd, int epollfd) {
         printf("now_fd closed!\n");
     }
 }
-
+*/
 int do_recv(int now_fd, int epollfd) {
     char buff[1024];
     memset(buff, 0, sizeof(buff));
     int recv_ret = recv(now_fd, buff, sizeof(buff), 0);
-    if(recv_ret < 0) {perror("recv");}
+    if(recv_ret < 0) {perror("recv in do recv");}
     else printf("**************recvstr : %s \n", buff);
     modify_event(epollfd, now_fd, EPOLLOUT);
 }
@@ -245,13 +305,13 @@ void first_try_connect() {
         }
     }
     if (flag != 1) {
-        //printf("让子进程继续尝试链接master flag = %d\n", flag);
-        //if(kill(getppid(), 10) == -1) { perror("kill"); }
+        printf("让子进程继续尝试链接master flag = %d\n", flag);
+        if(kill(getppid(), 10) == -1) { perror("kill"); }
     }
     return ;
 }
 
-int heartbeat_recv(int son_pid) {
+int heartbeat_recv() {
     int listen_socket = get_listen_socket(clntIP, atoi(clntHPORT));
     if(listen_socket < 0) {perror("getlistensock"); return -1;}
     struct epoll_event events[MAX_EVENTS];
@@ -272,7 +332,7 @@ int heartbeat_recv(int son_pid) {
         } else {
             int master_socket = accept_clnt(listen_socket);
             if (master_socket > 0) {
-                printf("收到心跳\n");
+                //printf("收到心跳\n");
                 close(master_socket);
                 msg->heartbeat_flag = 0;
             } else {
@@ -286,24 +346,24 @@ int heartbeat_recv(int son_pid) {
 }
 
 void do_data_recv_send() {
-        int listen_socket = get_listen_socket(clntIP, atoi(clntPORT));
-        if(listen_socket < 0) { perror("[work] getlistensock"); }
-        int epollfd;
-        struct epoll_event events[MAX_EVENTS];
-        epollfd = epoll_create(1);
-        add_event(epollfd, listen_socket, EPOLLIN);
-        while(1) {
-            printf("------------------------------\n");
-            int nfds = epoll_wait(epollfd, events, MAX_EVENTS, -1);
-            if (nfds == -1) { 
-                perror("epoll_wait in work");
-            } else if (nfds == 0) {
-                printf("WTF!in working epollwait nfds == 0\n");
-            } else {
-                do_events(epollfd, nfds, listen_socket, events);
-            }
+    int listen_socket = get_listen_socket(clntIP, atoi(clntPORT));
+    if(listen_socket < 0) { perror("[work] getlistensock"); }
+    int epollfd;
+    struct epoll_event events[MAX_EVENTS];
+    epollfd = epoll_create(1);
+    add_event(epollfd, listen_socket, EPOLLIN);
+    while(1) {
+        printf("-------------send N recv-----------------\n");
+        int nfds = epoll_wait(epollfd, events, MAX_EVENTS, -1);
+        if (nfds == -1) { 
+            perror("epoll_wait in work");
+        } else if (nfds == 0) {
+            printf("WTF!in working epollwait nfds == 0\n");
+        } else {
+            do_events(epollfd, nfds, listen_socket, events);
         }
-        close(epollfd);
+    }
+    close(epollfd);
 }
     
 int main() {
@@ -335,7 +395,7 @@ int main() {
         printf("[主] pid = %d ：监听心跳信号\n", getpid());
         pthread_t pthread_id;
         pthread_create(&pthread_id, NULL, do_make_log_info, NULL);
-        heartbeat_recv(pid);
+        heartbeat_recv();
     } else if (my_id == 1) {
         printf("[子] pid = %d ：我是子进程, 在等待接受信号，断线重连时刻就绪\n", getpid());
         signal(10, grandson_lazy_connect);

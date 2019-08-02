@@ -16,6 +16,7 @@
 typedef struct clnt_node {
     unsigned int ip;
     int id;
+    char logPath[32];
     struct clnt_node *next;
 } clntnode;
 
@@ -42,7 +43,7 @@ ClntInfoList *Clnt_Info_list_init(int id) {
     return all_clnt;
 
 }
-
+char *get_ip_str(clntnode *);
 
 PClntInfoList *all_init(int Ins) {
     PClntInfoList *a = (PClntInfoList *)malloc(sizeof(PClntInfoList) * Ins);
@@ -58,8 +59,9 @@ ClntInfoList *List_add(ClntInfoList *all_clnt, unsigned int ip) {
     all_clnt->maxid += 1;
     n->ip = ip;
     n->id = all_clnt->maxid;
-    
     n->next = all_clnt->head->next;
+    memset(n->logPath, 0, 32);
+    strcpy(n->logPath, get_ip_str(n));
     all_clnt->head->next = n;   //头插
     return all_clnt;
 }

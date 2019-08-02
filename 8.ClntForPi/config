@@ -1,7 +1,7 @@
 
 Ins=4
 startIP=192.168.1.0
-endIP=192.168.1.10
+endIP=192.168.1.1
 MasterIP=192.168.2.90
 MasterIP!=127.0.0.1
 MasterPORT=8000
