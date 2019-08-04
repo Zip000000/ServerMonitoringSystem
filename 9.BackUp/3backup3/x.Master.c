@@ -26,11 +26,20 @@
 #include "Epoll.c"
 #include "Common.c"
 
-#define Send_Recv_Time 3
+#define Send_Recv_Time 10
 
 
 int Ins;
 pthread_mutex_t mutex;
+
+typedef struct LogInfo {
+    int flag;
+    int buflen;
+    char buf[1024];
+    char tail[10];
+} LogInfo;
+LogInfo loginfo;
+
 int do_heartbeat(clntnode *c) {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in serv_addr;
@@ -91,7 +100,7 @@ void *heartbeat (void *arg) {
             clntnode *c = all_clnt->head;
             while(c->next) {
                 if (!do_heartbeat(c->next)){
-                    printf("[No. %d] 删除该服务器\n", all_clnt->my_id);
+                    //printf("[No. %d] 删除该服务器\n", all_clnt->my_id);
                     pthread_mutex_lock(&mutex);
                     clntnode *d = c->next;
                     c->next = c->next->next;
@@ -105,7 +114,7 @@ void *heartbeat (void *arg) {
             }    
         }
         //show_list(all_clnt);
-        //printf("--------------------------------\n");
+        printf("--------------------------------\n");
         cnt++;
         usleep(atoi(HeartbeatTimeout));
     }
@@ -153,15 +162,6 @@ void add_all_clnt(PClntInfoList *all_clnt, int Ins) {
 }
 
 int do_save_log_file(int now_fd) {
-
-    typedef struct LogInfo {
-        int flag;
-        int buflen;
-        char buf[1025];
-    } LogInfo;
-    LogInfo loginfo;
-    char tmp[1024]={0};
-
     int ret = 0;
     
     struct sockaddr_in addr;
@@ -171,26 +171,34 @@ int do_save_log_file(int now_fd) {
     char logDir[100];
     sprintf(logDir, "./Master_LogInfo/%s", ipPath);
     mkdir(logDir, 0777);
+    //printf("logDir : %s\n", logDir);
     while (1) {
         memset(&loginfo, 0, sizeof(loginfo));
         int recv_ret = recv(now_fd, &loginfo, sizeof(loginfo), 0);
-        /*
         while (recv_ret == -1 && errno == EAGAIN) {
             printf("\033[31m非阻塞： \033[0m strlen = %ld\n", strlen(loginfo.buf));
             recv_ret = recv(now_fd, &loginfo, sizeof(loginfo), 0);
             printf("\033[31m尝试recv!------------------------------\033[0m\n");
         }
-        */
         if (recv_ret < 0) { perror("recv after judge"); ret = -1; break;}
+        /*
         int recv_tmp = recv_ret;
         while (recv_tmp < sizeof(loginfo)) {
             printf("\033[31mflag=%d 拼凑字符串呢！ recvret = %d strlen = %ld 标准：%d \033[0m\n", loginfo.flag, recv_ret, strlen(loginfo.buf), loginfo.buflen);
             printf("\033[31m当前字符串：\n%s\033[0m\n", loginfo.buf);
             char tail_part[1024] = {0};
-            recv_ret = recv(now_fd, tail_part, sizeof(loginfo)-recv_tmp, 0);
-            recv_tmp += recv_ret;
-            if (recv_ret == -1) {perror("recvc in 拼凑"); sleep(5);}
-            if (recv_ret == 0) {printf("in 拼凑 对方关闭sock\n"); break;}
+            recv_ret = recv(now_fd, , sizeof(tail_part), 0);
+            if (recv_ret == 0) break;
+            strcat(loginfo.buf, tail_part);
+            
+        }
+        */
+        while (strlen(loginfo.buf) < loginfo.buflen) {
+            printf("\033[31mflag=%d 拼凑字符串呢！ recvret = %d strlen = %ld 标准：%d \033[0m\n", loginfo.flag, recv_ret, strlen(loginfo.buf), loginfo.buflen);
+            printf("\033[31m当前字符串：\n%s\033[0m\n", loginfo.buf);
+            char tail_part[1024] = {0};
+            recv_ret = recv(now_fd, tail_part, 1024-strlen(loginfo.buf), 0);
+            if (recv_ret == 0) break;
             strcat(loginfo.buf, tail_part);
         }
         char filename[1000] = {0};
@@ -207,9 +215,9 @@ int do_save_log_file(int now_fd) {
             strcpy(filename, "./Master_LogInfo/tmp"); break;
         }
         FILE *fp = fopen(filename, "a+");
-        if (fp == NULL) { perror("fopen a+"); fclose(fp); return -1; }
-        printf("包：flag = %d stdlen = %d buflen = %ld \n buf = %s\n", loginfo.flag, loginfo.buflen, strlen(loginfo.buf), loginfo.buf);
-        if (recv_ret == 0) { printf("recv_ret == 0\n"); fclose(fp); break;}
+        if (fp == NULL) { perror("fopen a+"); return -1; }
+        printf("包：flag = %d \n buf = %s\n", loginfo.flag, loginfo.buf);
+        if (recv_ret == 0) { printf("recv_ret == 0\n"); break;}
         if (recv_ret != 0 ) {
             int writenum = (strlen(loginfo.buf) > 1024 ? 1024 : strlen(loginfo.buf));
             int fwrite_ret = fwrite(loginfo.buf, 1, writenum, fp);
@@ -225,6 +233,7 @@ int do_save_log_file(int now_fd) {
     }
     return ret;
 }
+
 void *do_work (void *arg) {
     struct epoll_event events[atoi(MAX_WORK_EVENTS) / Ins + 10];
     
@@ -246,7 +255,7 @@ void *do_work (void *arg) {
             continue;
         }
         clntnode *c = tmp_list->head;
-        for (clntnode *c = tmp_list->head; c->next != NULL; c = c->next) {
+        while(1) {
             char cnext_ip_str[100];
             memset(cnext_ip_str, 0, sizeof(cnext_ip_str));
             if(c->next != NULL) {
@@ -263,143 +272,14 @@ void *do_work (void *arg) {
             make_sockaddr_in(&serv_addr, cnext_ip_str, clntPORT);
             unsigned long ul = 1;
             ioctl(sock, FIONBIO, &ul);
-            int con_ret = connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
-            printf("我connect 的是 ： ip ： %s  port : %s\n", cnext_ip_str, clntPORT);
-            if (con_ret < 0 && errno == EINPROGRESS) {
-                perror("connect in send : normal");
-                int error = -1;
-                int len = sizeof(error);
-                if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, (socklen_t *)&len) < 0) {
-                    perror("getsockopt");
-                } else if (error == 0) {
-                    printf("\033[31mgetsockopt 正常！\033[0m\n");
-                } else {
-                    printf("\033[31mgetsockopt 异常\033[0m\n");
-                    close(sock);
-                    sleep(1);
-                    continue;
-                }
-            } else {
-                perror("connect in send");
-                close(sock);
-                sleep(1);
-                continue;
-            }
-            add_event(epollfd, sock, EPOLLOUT);
-            while (1) {
-                int nfds = epoll_wait(epollfd, events, atoi(MAX_WORK_EVENTS), 1000);
-                if(nfds == -1) {
-                    perror("epoll_wait in do_work");
-                } else if(nfds == 0) {
-                    printf("[send & recv] <%s>%d ：epoll wait do_work 超时,跳过该客户。\n",cnext_ip_str, sock);
-                } else {
-                    if (events[0].events & EPOLLOUT) {
-                        char sendstr[] = "I want you!!!give it to me!!!";
-                        printf("开始准备发送！\n");
-                        int send_ret = send(sock, sendstr, strlen(sendstr), 0);
-                        while (send_ret == -1 && errno == EAGAIN) {
-                            send_ret = send(sock, sendstr, strlen(sendstr), 0);
-                            printf("\033[31msend 阻塞的锅！！！\033[0m\n");
-                        }
-
-                        printf("发送结束\n");
-                        if (send_ret <= 0) {
-                            if (send_ret < 0) perror("send in do work"); else { printf("send_ret==0\n"); } 
-                            printf("delete_event 111\n");
-                            delete_event(epollfd, sock, 0);
-                            close(sock);
-                            sleep(1);
-                            break;
-                        }
-                        printf("[send & recv] <%s>%d ： send success！\n",cnext_ip_str, sock);
-                        modify_event(epollfd, sock, EPOLLIN);
-                        continue;
-                    } else if(events[0].events & EPOLLIN) {
-                        printf("准备recv！！！！\n");
-
-                        unsigned long new_ul = 0;
-                        ioctl(sock, FIONBIO, &new_ul);
-                        int do_save_log_file_ret = do_save_log_file(sock);
-                        unsigned long new_ul2 = 1;
-                        ioctl(sock, FIONBIO, &new_ul2);
-                        if (do_save_log_file_ret < 0) {
-                            printf("\n\nPlease dont be here!!!!!!!!!!!!!!!!!!!!\n\n");
-                            
-                            unsigned long ul = 1;
-                            ioctl(sock, FIONBIO, &ul);
-
-                            printf("delete_event 222\n");
-                            delete_event(epollfd, sock, 0);
-                            close(sock);
-                            sleep(1);
-                            break;
-                        }
-                        printf("[send & recv] <%s>%d ： save success！\n",cnext_ip_str, sock);
-                    }
-                }
-                printf("delete_event 333\n");
-                delete_event(epollfd, sock, 0);
-                close(sock);
-                printf("[send & recv] <%s>%d ： clear success！\n",cnext_ip_str, sock);
-                sleep(Send_Recv_Time);  //10s收发一次
-                break;
-            }
-            //c = c->next;
-        }
-    clear_List(tmp_list);
-    }
-}
-
-/*
-void *do_work (void *arg) {
-    struct epoll_event events[atoi(MAX_WORK_EVENTS) / Ins + 10];
-    
-    ClntInfoList *all_clnt = (ClntInfoList *)arg;
-    long long cnt = 0;
-    int epollfd = epoll_create(1);
-    while(1) {
-        cnt++;
-        pthread_mutex_lock(&mutex);
-        ClntInfoList *tmp_list = copy_List(all_clnt);
-        int clnt_num = all_clnt->clnt_num;
-        int my_id = all_clnt->my_id;
-        pthread_mutex_unlock(&mutex);
-
-        printf("[send & recv] 开始进行第[%lld]次收发: 链表[%d]共%d 个客户.\n", cnt, my_id, clnt_num);
-        if(clnt_num == 0) {
-            printf("[send & recv]当前没有用户，休息1s\n");
-            sleep(1);
-            continue;
-        }
-
-        clntnode *c = tmp_list->head;
-        for (clntnode *c = tmp_list->head; c->next != NULL; c = c->next) {
-            char cnext_ip_str[100];
-            memset(cnext_ip_str, 0, sizeof(cnext_ip_str));
-            if(c->next != NULL) {
-                printf("id = %d, ip = %s\n", c->next->id, get_ip_str(c->next));
-                strcpy(cnext_ip_str, get_ip_str(c->next));
-            } else {
-                printf("c->next == NULL  break\n");
-                break;
-            }
-            
-            int sock = socket(AF_INET, SOCK_STREAM, 0);
-            if (sock < 0) { perror("socket in do_work"); break;}
-            struct sockaddr_in serv_addr;
-            make_sockaddr_in(&serv_addr, cnext_ip_str, clntPORT);
-            unsigned long ul = 1;
-            ioctl(sock, FIONBIO, &ul);
-            printf("before connect: port = %s  ip = %s\n", clntPORT, cnext_ip_str);
             int con_ret = connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
             if (con_ret < 0 && errno == EINPROGRESS) {
                 printf("connect in send : normal\n");
             } else {
                 perror("connect in send");
             }
-            if (con_ret >= 0) add_event(epollfd, sock, EPOLLOUT);
-
-            while (1) {
+            add_event(epollfd, sock, EPOLLOUT);
+            while(1) {
                 int nfds = epoll_wait(epollfd, events, atoi(MAX_WORK_EVENTS), 1000);
                 if(nfds == -1) {
                     perror("epoll_wait in do_work");
@@ -410,15 +290,9 @@ void *do_work (void *arg) {
                         char sendstr[] = "I want you!!!give it to me!!!";
                         printf("开始准备发送！\n");
                         int send_ret = send(sock, sendstr, strlen(sendstr), 0);
-                        while (send_ret == -1 && errno == EAGAIN) {
-                            send_ret = send(sock, sendstr, strlen(sendstr), 0);
-                            printf("\033[31msend 阻塞的锅！！！\033[0m\n");
-                        }
-
                         printf("发送结束\n");
                         if (send_ret <= 0) {
                             if (send_ret < 0) perror("send in do work"); else { printf("send_ret==0\n"); } 
-                            printf("delete_event 111\n");
                             delete_event(epollfd, sock, 0);
                             close(sock);
                             sleep(1);
@@ -441,7 +315,6 @@ void *do_work (void *arg) {
                             unsigned long ul = 1;
                             ioctl(sock, FIONBIO, &ul);
 
-                            printf("delete_event 222\n");
                             delete_event(epollfd, sock, 0);
                             close(sock);
                             sleep(1);
@@ -450,56 +323,19 @@ void *do_work (void *arg) {
                         printf("[send & recv] <%s>%d ： save success！\n",cnext_ip_str, sock);
                     }
                 }
-                printf("delete_event 333\n");
                 delete_event(epollfd, sock, 0);
                 close(sock);
                 printf("[send & recv] <%s>%d ： clear success！\n",cnext_ip_str, sock);
-                sleep(Send_Recv_Time);  //10s收发一次
+                sleep(Send_Recv_Time);  //1s收发一次
                 break;
             }
-            //c = c->next;
+            c = c->next;
         }
     clear_List(tmp_list);
     //这里不注释吧？？？？？？
     }
 }
-*/
-void *warnning_recv() {
-    int flag = 0;
-    int udpsock;
-    struct sockaddr_in serv_addr;
-    
-    while (flag == 0) {
-        flag = 1;
-        make_sockaddr_in(&serv_addr, masterIP, masterWPORT);
-
-        udpsock = socket(AF_INET, SOCK_DGRAM, 0);
-        if (udpsock < 0) {
-            perror("socket in warnning");
-            flag = 0;
-        }
-        int bind_ret = bind(udpsock, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
-        if (bind_ret < 0) {
-            perror("bind");
-            flag = 0;
-        }
-    }
-    int len = sizeof(struct sockaddr);
-    while (1) {
-        int warn = 0;
-        int recvfrom_ret = recvfrom(udpsock, &warn, sizeof(warn), 0, (struct sockaddr *)&serv_addr, &len);
-        if (recvfrom_ret < 0) {
-            perror("recvfrom");
-        } else if (warn == 1) {
-            printf("\033[31m收到客户端警报!!!!!!!!!!!!!!!!!!\033[0m\n");
-            sleep(5);
-        }
-    }
-}
-
 int main() {
-    printf("pid = %d\n", getpid());
-    sleep(3);
     pthread_mutex_init(&mutex, NULL);
     do_master_config();
     Ins = atoi(INS);
@@ -508,9 +344,8 @@ int main() {
     clnt_list=all_init(Ins);
     
     add_all_clnt(clnt_list, Ins);
-    pthread_t pthread_id[Ins + 5];
+    pthread_t pthread_id[Ins + 1];
 	pthread_create(&pthread_id[Ins], NULL, heartbeat, clnt_list);
-	//pthread_create(&pthread_id[Ins + 1], NULL, warnning_recv, NULL);
     for(int i = 0; i < Ins; i++) {
 	    pthread_create(&pthread_id[i], NULL, do_work, clnt_list[i]);
     }
@@ -539,103 +374,3 @@ int main() {
     pthread_mutex_destroy(&mutex);
 	return 0;	
 }
-        /*
-        int recv_tmp = recv_ret;
-        while (recv_tmp < sizeof(loginfo)) {
-            printf("\033[31mflag=%d 拼凑字符串呢！ recvret = %d strlen = %ld 标准：%d \033[0m\n", loginfo.flag, recv_ret, strlen(loginfo.buf), loginfo.buflen);
-            printf("\033[31m当前字符串：\n%s\033[0m\n", loginfo.buf);
-            char tail_part[1024] = {0};
-            recv_ret = recv(now_fd, , sizeof(tail_part), 0);
-            if (recv_ret == 0) break;
-            strcat(loginfo.buf, tail_part);
-            
-        }
-        */
-/*
-        for (clntnode *c = tmp_list->head; c->next != NULL; c = c->next) {
-            char cnext_ip_str[100];
-            memset(cnext_ip_str, 0, sizeof(cnext_ip_str));
-            //if(c->next != NULL) {
-            //    printf("id = %d, ip = %s\n", c->next->id, get_ip_str(c->next));
-            //    strcpy(cnext_ip_str, get_ip_str(c->next));
-            //} else {
-            //    printf("c->next == NULL  break\n");
-            //    break;
-            //}
-
-            int sock = socket(AF_INET, SOCK_STREAM, 0);
-            if (sock < 0) { perror("socket in do_work"); break;}
-            struct sockaddr_in serv_addr;
-            make_sockaddr_in(&serv_addr, cnext_ip_str, clntPORT);
-            //unsigned long ul = 1;
-            //ioctl(sock, FIONBIO, &ul);
-            int con_ret = connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
-            //if (con_ret < 0 && errno == EINPROGRESS) {
-            //    printf("connect in send : normal\n");
-            //} else {
-            //    perror("connect in send");
-            //}
-            perror("connect important");
-            if (con_ret < 0 && errno == EINPROGRESS) {
-                printf("connect in send : normal\n");
-                int error = -1;
-                int len = sizeof(error);
-                if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, (socklen_t *)&len) < 0) {
-                    perror("getsockopt");
-                } else if (error == 0) {
-                    printf("\033[31m应该能发过去啊a！\033[0m\n");
-                } else {
-                    printf("\033[31m怪不得发不过\033[0m\n");
-                }
-            } else { 
-                perror("connect in send");
-                sleep(1);
-                continue;
-            }
-            add_event(epollfd, sock, EPOLLOUT);
-*/
-
-
-            /*
-            while(1) {
-                int nfds = epoll_wait(epollfd, events, atoi(MAX_WORK_EVENTS), 1000);
-                if(nfds == -1) {
-                    perror("epoll_wait in do_work");
-                } else if(nfds == 0) {
-                    printf("[send & recv] <%s>%d ：epoll wait do_work 超时,跳过该客户。\n",cnext_ip_str, sock);
-                } else {
-                    if (events[0].events & EPOLLOUT) {
-                        char sendstr[] = "I want you!!!give it to me!!!";
-                        printf("开始准备发送！\n");
-                        int send_ret = send(sock, sendstr, strlen(sendstr), 0);
-                        printf("发送结束\n");
-                        if (send_ret <= 0) {
-                            if (send_ret < 0) perror("send in do work"); else { printf("send_ret==0\n"); } 
-                            delete_event(epollfd, sock, 0);
-                            close(sock);
-                            sleep(1);
-                            break;
-                        }
-                        printf("[send & recv] <%s>%d ： send success！\n",cnext_ip_str, sock);
-                        modify_event(epollfd, sock, EPOLLIN);
-                        continue;
-                    } else if(events[0].events & EPOLLIN) {
-                        printf("准备recv！！！！\n");
-                        if (do_save_log_file(sock) < 0) {
-                            printf("\n\nPlease dont be here!!!!!!!!!!!!!!!!!!!!\n\n");
-                            delete_event(epollfd, sock, 0);
-                            close(sock);
-                            sleep(1);
-                            break;
-                        }
-                        printf("[send & recv] <%s>%d ： save success！\n",cnext_ip_str, sock);
-                    }
-                }
-                delete_event(epollfd, sock, 0);
-                close(sock);
-                printf("[send & recv] <%s>%d ： clear success！\n",cnext_ip_str, sock);
-                sleep(Send_Recv_Time);  //1s收发一次
-                break;
-            }
-            */
-

@@ -1,20 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <sys/epoll.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <signal.h>
-#include <pthread.h>
-#include <sys/ioctl.h>
-#include <sys/stat.h>
-
-
 #ifndef Common_Define
 #define Common_Define
 int get_conf_value(const char *file, const char *key, char *val) {
@@ -47,7 +30,6 @@ char startIP[100];
 char endIP[100];
 char masterIP[100];
 char masterPORT[100];
-char masterWPORT[100];
 char clntHPORT[100];
 char clntPORT[100];
 char clntIP[100];
@@ -55,7 +37,6 @@ char INS[100];
 char MAX_EVENTS[100];
 char MAX_WORK_EVENTS[100];
 char HeartbeatTimeout[100];
-char ReconnTimes[100];
 
 void do_master_config() {
     memset(clntPORT, 0, sizeof(clntPORT));
@@ -78,9 +59,6 @@ void do_master_config() {
     get_conf_value("config", "Master_MAX_WORK_EVENTS", MAX_WORK_EVENTS);
     memset(HeartbeatTimeout, 0, sizeof(HeartbeatTimeout));
     get_conf_value("config", "HeartbeatTimeout",HeartbeatTimeout);
-
-    memset(masterWPORT, 0, sizeof(masterWPORT));
-    get_conf_value("config", "MasterWPORT", masterWPORT);
 }
 
 
@@ -97,11 +75,7 @@ void do_clnt_config() {
     get_conf_value("config", "MasterPORT", masterPORT);
     memset(MAX_EVENTS, 0, sizeof(MAX_EVENTS));
     get_conf_value("config", "Clnt_MAX_EVENTS", MAX_EVENTS);
-    memset(ReconnTimes, 0, sizeof(ReconnTimes));
-    get_conf_value("config", "ReconnTimes", ReconnTimes);
 
-    memset(masterWPORT, 0, sizeof(masterWPORT));
-    get_conf_value("config", "MasterWPORT", masterWPORT);
 }
 
 #endif

@@ -30,7 +30,7 @@ int get_socket_conn(char *ip, int port) {
     return sock;
 }
 int get_listen_socket(char *ip, int port) {
-    int listen_socket;
+    int listen_socket = get_socket(ip, port);
     if ((listen_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("socket() error");
         return -1;
@@ -45,6 +45,7 @@ int get_listen_socket(char *ip, int port) {
 		perror("set spckopt reuse");
 		return -1;
 	}
+
     if (bind(listen_socket, (struct sockaddr *)&my_addr, sizeof(my_addr)) < 0) {
         perror("bind");
         return -1;
