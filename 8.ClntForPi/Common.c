@@ -56,6 +56,7 @@ char MAX_EVENTS[100];
 char MAX_WORK_EVENTS[100];
 char HeartbeatTimeout[100];
 char ReconnTimes[100];
+char Send_Recv_Time[100];
 
 void do_master_config() {
     memset(clntPORT, 0, sizeof(clntPORT));
@@ -81,6 +82,9 @@ void do_master_config() {
 
     memset(masterWPORT, 0, sizeof(masterWPORT));
     get_conf_value("config", "MasterWPORT", masterWPORT);
+
+    memset(Send_Recv_Time, 0, sizeof(Send_Recv_Time));
+    get_conf_value("config", "Send_Recv_Time", Send_Recv_Time);
 }
 
 

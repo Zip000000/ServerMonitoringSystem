@@ -113,13 +113,18 @@ void first_try_connect() {
         if (ret < 0 && errno == EINPROGRESS) {
             flag = select_conn(sock);
             if (flag == -1) {
-                printf("[孙子][初试连接] 失败, 1s后进行下次尝试。。。。\n");  
-                sleep(1);
+                printf("[孙子][初试连接] 失败[1], 1s后进行下次尝试。。。。\n");  
+                perror("connect 1");
+                sleep(2);
             } else {
                 printf("[孙子][初试连接] 链接成功 flag = %d\n", flag);
                 close(sock);   
                 break;
             }
+        } else {
+            printf("[孙子][初试连接] 失败[2], 1s后进行下次尝试。。。。\n");;  
+            perror("connect 2");
+            sleep(2);
         }
     }
     if (flag != 1) {
@@ -389,13 +394,16 @@ void do_data_recv_send() {
     add_event(epollfd, listen_socket, EPOLLIN);
     while(1) {
         printf("-------------send N recv-----------------\n");
-        int nfds = epoll_wait(epollfd, events, MAX_EVENTS, 3000000);
+        int nfds = epoll_wait(epollfd, events, MAX_EVENTS, 3000);
         if (nfds == -1) { 
             perror("epoll_wait in do_data_send_recv");
         } else if (nfds == 0) {
             printf("send N recv Timeout!\n");
         } else {
             do_events(epollfd, nfds, listen_socket, events);
+            msg->heartbeat_flag = 0;
+            msg->makeinfo_times=0;
+
         }
     }
     close(listen_socket);

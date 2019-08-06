@@ -2,7 +2,7 @@
 Ins=1
 startIP=192.168.1.0
 endIP=192.168.1.1
-MasterIP=192.168.1.41
+MasterIP=192.168.1.43
 MasterIP!=127.0.0.1
 MasterPORT=8800
 MasterWPORT=6600
@@ -21,6 +21,9 @@ Clnt_MAX_EVENTS=2
 HeartbeatTimeout=1000000
 //开启断线重连的自检失败次数
 ReconnTimes=20
+
+//多久请求一次数据 s
+Send_Recv_Time=5
 
 //积累多少条数据再写入文件
 WriteTimes=5
