@@ -20,13 +20,15 @@
 #include <pthread.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <errno.h>
+#include <time.h>
+#include <stdarg.h>
+#include <sys/file.h>
 
 #include "Sock.c"
 #include "ClntList.c"
 #include "Epoll.c"
 #include "Common.c"
-
-
 
 int Ins;
 pthread_mutex_t mutex;
@@ -94,6 +96,7 @@ void *heartbeat (void *arg) {
                     clntnode *d = c->next;
                     c->next = c->next->next;
                     clntlist[i]->clnt_num--;
+                    write_running_log(SysLog, "Delete client <%s>\n", get_ip_str(d));
                     free(d);
                     pthread_mutex_unlock(&mutex);
                     continue;
@@ -119,11 +122,13 @@ int add_clnt(int listen_socket, PClntInfoList *all_clnt) {
     if (!is_in_list(all_clnt, ip, Ins)) {
         pthread_mutex_lock(&mutex);
         int min_list_id = get_min_list_id(all_clnt, Ins);
-        List_add(all_clnt[min_list_id], clnt_addr.sin_addr.s_addr);
+        clntnode *tmp = List_add(all_clnt[min_list_id], clnt_addr.sin_addr.s_addr);
+        write_running_log(SysLog, "New client : <%s> add success!\n", get_ip_str(tmp));
         pthread_mutex_unlock(&mutex);
         close(clnt_socket);
         return 1;
     } else {
+        write_running_log(SysLog, "Same client : <%s> add failed! Already in List.\n", inet_ntoa(clnt_addr.sin_addr));
         close(clnt_socket);
         return 0;
     }
@@ -140,7 +145,7 @@ void add_all_clnt(PClntInfoList *all_clnt, int Ins) {
         if (i << 24 >> 24  == 0 || i << 24 >> 24 == 255) { continue; }
         printf("%s\n", inet_ntoa(in));
         int min_list_id = get_min_list_id(all_clnt, Ins);
-        all_clnt[min_list_id] = List_add(all_clnt[min_list_id], ntohl(i));
+        List_add(all_clnt[min_list_id], ntohl(i));
     }
     pthread_mutex_unlock(&mutex);
     printf("%s~%s 插入完毕\n", startIP, endIP);
@@ -169,6 +174,7 @@ int do_save_log_file(int now_fd) {
     char logDir[100];
     sprintf(logDir, "./Master_LogInfo/%s", ipPath);
     mkdir(logDir, 0777);
+    mkdir("./Master_Sys_Log/", 0777);
     while (1) {
         memset(&loginfo, 0, sizeof(loginfo));
         int recv_ret = recv(now_fd, &loginfo, sizeof(loginfo), 0);
@@ -322,7 +328,7 @@ void *do_work (void *arg) {
                         ioctl(sock, FIONBIO, &new_ul2);
                         if (do_save_log_file_ret < 0) {
                             printf("\n\nPlease dont be here!!!!!!!!!!!!!!!!!!!!\n\n");
-                            
+                            write_running_log(SysLog, "<%s> Save Log Error!\n", cnext_ip_str);
                             unsigned long ul = 1;
                             ioctl(sock, FIONBIO, &ul);
 
@@ -496,6 +502,7 @@ void *warnning_recv() {
 }
 
 int main() {
+    write_running_log(SysLog, "Master Start!\n");
     printf("pid = %d\n", getpid());
     pthread_mutex_init(&mutex, NULL);
     do_master_config();
@@ -505,14 +512,21 @@ int main() {
     clnt_list=all_init(Ins);
     
     add_all_clnt(clnt_list, Ins);
+    write_running_log(SysLog, "From <%s> to <%s> added success!\n", startIP, endIP);
     pthread_t pthread_id[Ins + 5];
 	pthread_create(&pthread_id[Ins], NULL, heartbeat, clnt_list);
+    write_running_log(SysLog, "HeartBeat Ready!\n");
 	//pthread_create(&pthread_id[Ins + 1], NULL, warnning_recv, NULL);
     for(int i = 0; i < Ins; i++) {
 	    pthread_create(&pthread_id[i], NULL, do_work, clnt_list[i]);
+        write_running_log(SysLog, "do_work[%d] Ready!\n", i);
     }
     int listen_socket = get_listen_socket(masterIP, atoi(masterPORT));
-    if (listen_socket < 0) { perror("get_listen_socket in main"); exit(1); } 
+    if (listen_socket < 0) {
+        perror("get_listen_socket in main"); 
+        write_running_log(SysLog, "getlistensocket: %s\n", strerror(errno));
+        exit(1);
+    } 
     struct epoll_event events[atoi(MAX_EVENTS)];
     int epollfd = epoll_create(1);
     add_event(epollfd, listen_socket, EPOLLIN);

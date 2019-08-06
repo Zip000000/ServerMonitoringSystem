@@ -8,6 +8,7 @@ void make_sockaddr_in(struct sockaddr_in *addr, char *ip, char *port) {
     addr->sin_addr.s_addr = inet_addr(ip);
     addr->sin_port = htons(atoi(port));
 }
+/*
 int get_socket(char *ip, int port) {
     int sock;
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -16,6 +17,8 @@ int get_socket(char *ip, int port) {
     }
     return sock;
 }
+*/
+/*
 int get_socket_conn(char *ip, int port) {
     int sock;
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -29,10 +32,11 @@ int get_socket_conn(char *ip, int port) {
     my_addr.sin_addr.s_addr = inet_addr(ip);
     return sock;
 }
+*/
 int get_listen_socket(char *ip, int port) {
     int listen_socket;
     if ((listen_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        perror("socket() error");
+        //perror("socket() error");
         return -1;
     }
     struct sockaddr_in my_addr;
@@ -42,15 +46,15 @@ int get_listen_socket(char *ip, int port) {
     my_addr.sin_addr.s_addr = inet_addr(ip);
 	int yes = 1;
 	if (setsockopt(listen_socket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
-		perror("set spckopt reuse");
+		//perror("set spckopt reuse");
 		return -1;
 	}
     if (bind(listen_socket, (struct sockaddr *)&my_addr, sizeof(my_addr)) < 0) {
-        perror("bind");
+        //perror("bind");
         return -1;
     }
     if (listen(listen_socket, 20) < 0) {
-        perror("listen");
+        //perror("listen");
         return -1;
     }
     return listen_socket;
@@ -63,7 +67,7 @@ int  accept_clnt(int listen_socket) {
     int clnt_socket = accept(listen_socket, (struct sockaddr *)&client_addr, &len);
     //printf("accept over\n");
     if(clnt_socket < 0) {
-        perror("accept");
+        //perror("accept");
         return -1;
     }
     getpeername(clnt_socket, (struct sockaddr *)&client_addr, &len);

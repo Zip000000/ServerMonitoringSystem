@@ -1,0 +1,30 @@
+[Tue Aug  6 20:29:48 2019] From <192.168.1.0> to <192.168.1.1> added success!
+[Tue Aug  6 20:29:48 2019] HeartBeat Ready!
+[Tue Aug  6 20:29:48 2019] do_work[0] Ready!
+[Tue Aug  6 20:31:22 2019] From <192.168.1.0> to <192.168.1.1> added success!
+[Tue Aug  6 20:31:22 2019] HeartBeat Ready!
+[Tue Aug  6 20:31:22 2019] do_work[0] Ready!
+[Tue Aug  6 20:31:22 2019] Delete client <192.168.1.1>
+[Tue Aug  6 20:31:43 2019] From <192.168.1.0> to <192.168.1.20> added success!
+[Tue Aug  6 20:31:43 2019] HeartBeat Ready!
+[Tue Aug  6 20:31:43 2019] do_work[0] Ready!
+[Tue Aug  6 20:31:43 2019] Delete client <192.168.1.20>
+[Tue Aug  6 20:31:43 2019] Delete client <192.168.1.19>
+[Tue Aug  6 20:31:44 2019] Delete client <192.168.1.18>
+[Tue Aug  6 20:31:44 2019] Delete client <192.168.1.17>
+[Tue Aug  6 20:31:44 2019] Delete client <192.168.1.16>
+[Tue Aug  6 20:31:45 2019] Delete client <192.168.1.15>
+[Tue Aug  6 20:31:45 2019] Delete client <192.168.1.14>
+[Tue Aug  6 20:31:45 2019] Delete client <192.168.1.13>
+[Tue Aug  6 20:31:46 2019] Delete client <192.168.1.12>
+[Tue Aug  6 20:31:46 2019] Delete client <192.168.1.11>
+[Tue Aug  6 20:31:46 2019] Delete client <192.168.1.10>
+[Tue Aug  6 20:31:46 2019] Delete client <192.168.1.9>
+[Tue Aug  6 20:31:46 2019] Delete client <192.168.1.8>
+[Tue Aug  6 20:31:47 2019] Delete client <192.168.1.7>
+[Tue Aug  6 20:31:47 2019] Delete client <192.168.1.6>
+[Tue Aug  6 20:31:47 2019] Delete client <192.168.1.5>
+[Tue Aug  6 20:31:48 2019] Delete client <192.168.1.4>
+[Tue Aug  6 20:31:48 2019] Delete client <192.168.1.3>
+[Tue Aug  6 20:31:48 2019] Delete client <192.168.1.2>
+[Tue Aug  6 20:31:48 2019] Delete client <192.168.1.1>

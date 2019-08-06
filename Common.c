@@ -57,6 +57,7 @@ char MAX_WORK_EVENTS[100];
 char HeartbeatTimeout[100];
 char ReconnTimes[100];
 char Send_Recv_Time[100];
+char SysLog[100];
 
 void do_master_config() {
     memset(clntPORT, 0, sizeof(clntPORT));
@@ -85,6 +86,9 @@ void do_master_config() {
 
     memset(Send_Recv_Time, 0, sizeof(Send_Recv_Time));
     get_conf_value("config", "Send_Recv_Time", Send_Recv_Time);
+    
+    memset(SysLog, 0, sizeof(SysLog));
+    get_conf_value("config", "Master_Sys_Log", SysLog);
 }
 
 
@@ -106,6 +110,49 @@ void do_clnt_config() {
 
     memset(masterWPORT, 0, sizeof(masterWPORT));
     get_conf_value("config", "MasterWPORT", masterWPORT);
+    
+    memset(SysLog, 0, sizeof(SysLog));
+    get_conf_value("config", "Clnt_Sys_Log", SysLog);
 }
 
+
+void write_running_log(char *filename, char *format, ...) {
+    va_list vl;
+    va_start(vl, format);
+    printf("in WRIT RUNNINT LOG\n");
+    FILE *fp = fopen(filename, "a+");
+    if (fp == NULL) {return; }
+    time_t timer = time(NULL);
+    char *ct = ctime(&timer);
+    ct[strlen(ct)-1] = 0;
+    char *str_err = NULL;
+    flock(fp->_fileno, LOCK_EX);
+    fprintf(fp, "[%s] ", ct);
+    vfprintf(fp, format, vl);
+    flock(fp->_fileno, LOCK_UN);
+    fclose(fp);
+    va_end(vl);
+}
+
+
+
 #endif
+/*
+void write_running_log(char *format, ...) {
+    va_list vl;
+    va_start(vl, format);
+    printf("in WRIT RUNNINT LOG\n");
+    FILE *fp = fopen("./Clnt_Running_Log/1.Log", "a+");
+    if (fp == NULL) {return; }
+    time_t timer = time(NULL);
+    char *ct = ctime(&timer);
+    ct[strlen(ct)-1] = 0;
+    char *str_err = NULL;
+    flock(fp->_fileno, LOCK_EX);
+    fprintf(fp, "[%s]", ct);
+    vfprintf(fp, format, vl);
+    flock(fp->_fileno, LOCK_UN);
+    fclose(fp);
+    va_end(vl);
+}
+*/

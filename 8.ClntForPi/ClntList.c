@@ -53,7 +53,7 @@ PClntInfoList *all_init(int Ins) {
     return a;
 }
 
-ClntInfoList *List_add(ClntInfoList *all_clnt, unsigned int ip) {
+clntnode *List_add(ClntInfoList *all_clnt, unsigned int ip) {
     clntnode *n = (clntnode *)malloc(sizeof(clntnode));
     all_clnt->clnt_num += 1;
     all_clnt->maxid += 1;
@@ -63,7 +63,7 @@ ClntInfoList *List_add(ClntInfoList *all_clnt, unsigned int ip) {
     memset(n->logPath, 0, 32);
     strcpy(n->logPath, get_ip_str(n));
     all_clnt->head->next = n;   //头插
-    return all_clnt;
+    return n;
 }
 int get_min_list_id(PClntInfoList *clnt_list, int Ins) {
     int min_id = 0;

@@ -23,23 +23,17 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/file.h>
-#include <errno.h>
-#include <time.h>
-#include <stdarg.h>
-
 #include "Common.c"
 #include "Sock.c"
 #include "Epoll.c"
 
 #define MAX_DATA 1024
 #define MAX_EVENTS 10
-#define __DEBUG__
+//#define __DEBUG__
 #ifdef __DEBUG__
 #define DBG(format, ...) printf (format, ##__VA_ARGS__)
-#define PERR(format) perror(format)
 #else
 #define DBG(format, ...)
-#define PERR(format) 
 #endif
 
 struct sm_msg {
@@ -77,7 +71,7 @@ int select_conn(int sock) {
         int error = -1;
         int len = sizeof(error);
         if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, (socklen_t *)&len) < 0) {
-            PERR("getsockopt");
+            perror("getsockopt");
         } else if (error == 0) {
             flag = 1;
         } else {
@@ -88,9 +82,8 @@ int select_conn(int sock) {
 }
 void grandson_lazy_connect(int n) {
     DBG("断线重连功能开启！\n");
-    write_running_log(SysLog, "Start Reconnecting...\n");
     int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock == -1) {PERR("socket in lazy_conn");  return;}
+    if (sock == -1) {perror("socket in lazy_conn");  return;}
     struct sockaddr_in serv_addr;
     make_sockaddr_in(&serv_addr, masterIP, masterPORT);
     unsigned long ul = 1;
@@ -104,7 +97,6 @@ void grandson_lazy_connect(int n) {
                 DBG("[子][断线重连] 失败, 1s后进行下次尝试。。。。\n");  
             } else {
                 DBG("[子][断线重连] 链接成功\n");
-                write_running_log(SysLog, "Reconnecting success!\n");
                 close(sock);   
                 break;
             }
@@ -115,7 +107,7 @@ void grandson_lazy_connect(int n) {
 } 
 void first_try_connect() {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock == -1) {PERR("socket");exit(1);}
+    if (sock == -1) {perror("socket");exit(1);}
     struct sockaddr_in serv_addr;
     make_sockaddr_in(&serv_addr, masterIP, masterPORT);
     int flag = -1;
@@ -123,42 +115,34 @@ void first_try_connect() {
     ioctl(sock, FIONBIO, &ul);
     for (int i = 1; i <= 10; i++) {
         DBG("第%d次尝试连接Master\n", i);
-        write_running_log(SysLog, "Try connecting Master\n");
         int ret = connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
         if (ret < 0 && errno == EINPROGRESS) {
             flag = select_conn(sock);
             if (flag == -1) {
                 DBG("[孙子][初试连接] 失败[1], 1s后进行下次尝试。。。。\n");  
-                PERR("connect 1");
+                perror("connect 1");
                 sleep(2);
             } else {
                 DBG("[孙子][初试连接] 链接成功 flag = %d\n", flag);
-                write_running_log(SysLog, "connecting success!\n");
                 close(sock);   
                 break;
             }
         } else {
             DBG("[孙子][初试连接] 失败[2], 1s后进行下次尝试。。。。\n");;  
-            PERR("connect 2");
+            perror("connect 2");
             sleep(2);
         }
     }
     if (flag != 1) {
         DBG("让子进程继续尝试链接master flag = %d\n", flag);
-        if(kill(getppid(), 10) == -1) { PERR("kill"); }
+        if(kill(getppid(), 10) == -1) { perror("kill"); }
     }
     return ;
 }
 
-
-
 int heartbeat_recv() {
     int listen_socket = get_listen_socket(clntIP, atoi(clntHPORT));
-    if(listen_socket < 0) {
-        write_running_log(SysLog, "%s\n", strerror(errno));
-        PERR("getlistensock");
-        return -1;
-    }
+    if(listen_socket < 0) {perror("getlistensock"); return -1;}
     struct epoll_event events[MAX_EVENTS];
     int epollfd = epoll_create(1);
     add_event(epollfd, listen_socket, EPOLLIN);
@@ -166,12 +150,12 @@ int heartbeat_recv() {
         DBG("------------------------------\n");
         int nfds = epoll_wait(epollfd, events, MAX_EVENTS, 1000);
         if (nfds == -1) { 
-            PERR("epoll_wait");
+            perror("epoll_wait");
         } else if (nfds == 0) {
             msg->heartbeat_flag = 1;
             /*
             if (kill(son_pid, 10) == -1) {
-                PERR("kill");
+                perror("kill");
             }
             */
         } else {
@@ -197,7 +181,7 @@ int warnning_master() {
 
     int udpsock = socket(AF_INET, SOCK_DGRAM, 0);
     if (udpsock < 0) {
-        PERR("socket in warnning");
+        perror("socket in warnning");
         return -1;
     }
     
@@ -205,7 +189,7 @@ int warnning_master() {
         int warn = 1;
         int sendto_ret = sendto(udpsock, &warn, sizeof(int), 0, (struct sockaddr *)&serv_warn_addr, sizeof(struct sockaddr));
         if (sendto_ret < 0) {
-            PERR("sendto in warnning");
+            perror("sendto in warnning");
             return -1;
         }
     }
@@ -217,11 +201,7 @@ int warnning_master() {
 void make_single_log(struct Data *data) {
     //DBG("start make single log cnt = %d\n", data->cnt);
     FILE *pp = popen(data->cmd, "r");
-    if(pp == NULL) { 
-        PERR("popen"); 
-        write_running_log(SysLog, "Make Log Popen Error : %s\n", strerror(errno));
-        return ;
-    }
+    if(pp == NULL) { perror("popen"); return ;}
     char *dt_buf = data->sd[data->cnt].buf;
     char tmp_para[100];
     if (data->my_id == 2) {
@@ -241,11 +221,7 @@ void make_single_log(struct Data *data) {
     //DBG("累计五次信息，准备写入\n");
     FILE *p_tmp = fopen(data->savePath, "a+");
     flock(p_tmp->_fileno, LOCK_EX);
-    if(p_tmp == NULL) { 
-        PERR("fopen");
-        write_running_log(SysLog, "Make Log Fopen Error : %s\n", strerror(errno));
-        return;
-    }
+    if(p_tmp == NULL) { perror("fopen");return; }
     for (int i = 0; i < 5; i++) {
         //DBG("i = %d, strlen = %ld\n", i, strlen(data->sd[i].buf));
         fwrite(data->sd[i].buf, 1, strlen(data->sd[i].buf), p_tmp);
@@ -307,7 +283,7 @@ void *do_make_log_info(void *arg) {
             DBG("断线 %d 次 满 %d 开启断线重连\n", msg->makeinfo_times, atoi(ReconnTimes));
             if (msg->makeinfo_times >= atoi(ReconnTimes)) {
                 DBG("断线超过 规定自检次数！Reconnect!\n");
-                if(kill(msg->Reconn_pid, 10) == -1) { PERR("kill");}
+                if(kill(msg->Reconn_pid, 10) == -1) { perror("kill");}
                 msg->makeinfo_times = 0;
             }
         }
@@ -328,23 +304,22 @@ int do_send(int now_fd, int epollfd) {
     for (int i = 0; i < 6; i++) {
         DBG("文件 %d 开始发送！\n", i);
         FILE *fp = fopen(filename[i], "r");
-        if (fp == NULL) PERR("fopen i");
+        if (fp == NULL) perror("fopen i");
         flock(fp->_fileno, LOCK_EX);
         int cnt = 0;
         while(1) {
             memset(&loginfo, 0, sizeof(loginfo));
             int read_ret = fread(loginfo.buf, 1, 1024, fp);
-            if (read_ret < 0) PERR("fread in while1");
+            if (read_ret < 0) perror("fread in while1");
             if (read_ret == 0 && cnt == 0) {DBG("空文件跳过\n");break;}
             else if (read_ret == 0 && cnt > 0) { break; }
             loginfo.flag = i;
             loginfo.buflen = strlen(loginfo.buf);
             //DBG("包：\nflag = %d, stdlen = %d buf = \n%s\n", loginfo.flag, loginfo.buflen, loginfo.buf);
             int send_ret = send(now_fd, &(loginfo), sizeof(loginfo), 0);
-            if (send_ret < 0) PERR("send in while1");
+            if (send_ret < 0) perror("send in while1");
             if (send_ret == 0) {
                 DBG("对方关闭链接\n");
-                write_running_log(SysLog, "Send log faild because Master closed\n", strerror(errno));
                 ret = -1;
                 break;
             }
@@ -355,7 +330,7 @@ int do_send(int now_fd, int epollfd) {
         DBG("文件 %d 处理成功！\n\n", i);
         if (ret != -1) {
             FILE *clear = fopen(filename[i], "w");
-            if (fp == NULL) PERR("fopen clear");
+            if (fp == NULL) perror("fopen clear");
             fclose(clear);
         } else {
             flock(fp->_fileno, LOCK_UN);
@@ -369,7 +344,7 @@ int do_recv(int now_fd, int epollfd) {
     char buff[1024];
     memset(buff, 0, sizeof(buff));
     int recv_ret = recv(now_fd, buff, sizeof(buff), 0);
-    if(recv_ret < 0) {PERR("recv in do recv"); return -1;}
+    if(recv_ret < 0) {perror("recv in do recv"); return -1;}
     else DBG("**************recvstr : %s \n", buff);
     modify_event(epollfd, now_fd, EPOLLOUT);
     return 0;
@@ -418,7 +393,7 @@ void do_events(int epollfd, int nfds, int listen_socket, struct epoll_event *eve
 
 void do_data_recv_send() {
     int listen_socket = get_listen_socket(clntIP, atoi(clntPORT));
-    if(listen_socket < 0) { PERR("[work] getlistensock"); exit(1); }
+    if(listen_socket < 0) { perror("[work] getlistensock"); exit(1); }
     int epollfd;
     struct epoll_event events[MAX_EVENTS];
     epollfd = epoll_create(1);
@@ -427,7 +402,7 @@ void do_data_recv_send() {
         DBG("-------------send N recv-----------------\n");
         int nfds = epoll_wait(epollfd, events, MAX_EVENTS, 3000);
         if (nfds == -1) { 
-            PERR("epoll_wait in do_data_send_recv");
+            perror("epoll_wait in do_data_send_recv");
         } else if (nfds == 0) {
             DBG("send N recv Timeout!\n");
         } else {
@@ -440,17 +415,17 @@ void do_data_recv_send() {
     close(listen_socket);
     close(epollfd);
 }
+
+int real_main() {
     
-int main() {
     do_clnt_config();
-    mkdir("./Clnt_Sys_Log", 0777);
     DBG("master IP = %s Master PORT =  %s\n", masterIP, masterPORT);
     DBG("clnt IP = %s clnt PORT =  %s\n", clntIP, clntHPORT);
     DBG("主进程：永远等待master发送心跳。\n");
     DBG("子进程：若孙子线程十次失败，子线程父承子业。成功则kill孙子进程。\n");
     DBG("孙子进程：主动链接master上限十次。之后无论成功失败都执行client本职任务。\n");
     int shmid = shmget(IPC_PRIVATE, sizeof(struct sm_msg), IPC_CREAT | 0666);
-    if (shmid < 0) { PERR("shmget"); exit(1); }
+    if (shmid < 0) { perror("shmget"); exit(1); }
     msg = shmat(shmid, NULL, 0);
     msg->heartbeat_flag = 0;
     msg->makeinfo_times = 0;
@@ -482,4 +457,10 @@ int main() {
         do_data_recv_send();         
     }
     return 0;
+}
+
+int main() {
+    pid_t pid = fork();
+    if (pid == 0) real_main();
+    exit(0);
 }
