@@ -71,7 +71,7 @@ int  accept_clnt(int listen_socket) {
         return -1;
     }
     getpeername(clnt_socket, (struct sockaddr *)&client_addr, &len);
-    printf("<%s> : Login    fd = %d \n",inet_ntoa(client_addr.sin_addr), clnt_socket);
+    //printf("<%s> : Login    fd = %d \n",inet_ntoa(client_addr.sin_addr), clnt_socket);
     return clnt_socket;
 }
 

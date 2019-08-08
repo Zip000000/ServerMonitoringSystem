@@ -5,6 +5,14 @@
 	> Created Time: 2019年07月20日 星期六 14时26分40秒
  ************************************************************************/
 
+#ifdef __DEBUG__
+#define DBG(format, ...) printf (format, ##__VA_ARGS__)
+#define PERR(format) perror(format)
+#else
+#define DBG(format, ...)
+#define PERR(format) 
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,15 +41,6 @@
 
 #define MAX_DATA 1024
 #define MAX_EVENTS 10
-#define __DEBUG__
-#ifdef __DEBUG__
-#define DBG(format, ...) printf (format, ##__VA_ARGS__)
-#define PERR(format) perror(format)
-#else
-#define DBG(format, ...)
-#define PERR(format) 
-#endif
-
 struct sm_msg {
     int heartbeat_flag;
     int makeinfo_times;
@@ -87,8 +86,8 @@ int select_conn(int sock) {
     return flag;
 }
 void grandson_lazy_connect(int n) {
-    DBG("断线重连功能开启！\n");
-    write_running_log(SysLog, "Start Reconnecting...\n");
+    DBG("收到信号 断线重连功能开启！\n");
+    write_running_log(SysLog, "收到信号 Start Reconnecting...\n");
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock == -1) {PERR("socket in lazy_conn");  return;}
     struct sockaddr_in serv_addr;
@@ -122,6 +121,8 @@ void first_try_connect() {
     unsigned long ul = 1;
     ioctl(sock, FIONBIO, &ul);
     for (int i = 1; i <= 10; i++) {
+        msg->heartbeat_flag = 0;
+        msg->makeinfo_times=0;
         DBG("第%d次尝试连接Master\n", i);
         write_running_log(SysLog, "Try connecting Master\n");
         int ret = connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
@@ -145,6 +146,7 @@ void first_try_connect() {
     }
     if (flag != 1) {
         DBG("让子进程继续尝试链接master flag = %d\n", flag);
+        write_running_log(SysLog, "KILL!!!!!!!!!!!!!!!!!!!!!\n");
         if(kill(getppid(), 10) == -1) { PERR("kill"); }
     }
     return ;
@@ -267,22 +269,21 @@ void *do_make_log_info(void *arg) {
     memset(&Stat, 0, sizeof(Cpu));
     Cpu.my_id = 1; Mem.my_id = 2; User.my_id = 3;
     Disk.my_id = 4; Dete.my_id = 5; Stat.my_id = 6;
-    strcpy(Cpu.cmd, "bash ./1.ShellStuff/1.CpuLog.sh");
-    strcpy(User.cmd, "bash ./1.ShellStuff/3.User.sh");
-    strcpy(Disk.cmd, "bash ./1.ShellStuff/4.Disk.sh");
-    strcpy(Dete.cmd, "bash ./1.ShellStuff/5.Detection.sh");
-    strcpy(Stat.cmd, "bash ./1.ShellStuff/6.State.sh");
-    strcpy(Cpu.savePath,"./Clnt_LogInfo/Log_Cpu");
-    strcpy(Mem.savePath, "./Clnt_LogInfo/Log_Mem");
-    strcpy(User.savePath, "./Clnt_LogInfo/Log_User");
-    strcpy(Disk.savePath, "./Clnt_LogInfo/Log_Disk");
-    strcpy(Dete.savePath, "./Clnt_LogInfo/Log_Dete");
-    strcpy(Stat.savePath, "./Clnt_LogInfo/Log_Stat");
+    sprintf(Cpu.cmd,  "bash %s/1.CpuLog.sh", ShellDir);
+    sprintf(User.cmd, "bash %s/3.User.sh", ShellDir);
+    sprintf(Disk.cmd, "bash %s/4.Disk.sh", ShellDir);
+    sprintf(Dete.cmd, "bash %s/5.Detection.sh", ShellDir);
+    sprintf(Stat.cmd, "bash %s/6.State.sh", ShellDir);
+    sprintf(Cpu.savePath,  "%s/Log_Cpu" , LoginfoDir);
+    sprintf(Mem.savePath,  "%s/Log_Mem" , LoginfoDir);
+    sprintf(User.savePath, "%s/Log_User", LoginfoDir);
+    sprintf(Disk.savePath, "%s/Log_Disk", LoginfoDir);
+    sprintf(Dete.savePath, "%s/Log_Dete", LoginfoDir);
+    sprintf(Stat.savePath, "%s/Log_Stat", LoginfoDir);
     Cpu.cnt = Mem.cnt = User.cnt = Disk.cnt = Dete.cnt = Stat.cnt = 0;
     int cnt = 0;
     while (1) {
-        sprintf(Mem.cmd, "bash ./1.ShellStuff/2.MemLog.sh %lf", msg->para_for_Mem);
-       /* 
+        sprintf(Mem.cmd, "bash %s/2.MemLog.sh %lf", ShellDir, msg->para_for_Mem);
         if (cnt == 6) {
             make_single_log(&Dete);
         } else if (cnt == 12) {
@@ -294,19 +295,21 @@ void *do_make_log_info(void *arg) {
         make_single_log(&Cpu);
         make_single_log(&Mem);
         cnt++;
-        sleep(5);
-*/
+        //sleep(5);
+/* 
         make_single_log(&Cpu);
         make_single_log(&Mem);
         make_single_log(&User);
         make_single_log(&Disk);
         make_single_log(&Dete);
         make_single_log(&Stat);
+*/
         if (msg->heartbeat_flag != 0) {
             msg->makeinfo_times++;
             DBG("断线 %d 次 满 %d 开启断线重连\n", msg->makeinfo_times, atoi(ReconnTimes));
             if (msg->makeinfo_times >= atoi(ReconnTimes)) {
                 DBG("断线超过 规定自检次数！Reconnect!\n");
+                write_running_log(SysLog, "KILL!!!!!!!!!!!!!!!!!!!!!\n");
                 if(kill(msg->Reconn_pid, 10) == -1) { PERR("kill");}
                 msg->makeinfo_times = 0;
             }
@@ -318,30 +321,39 @@ int do_send(int now_fd, int epollfd) {
 
     char filename[6][256];
     memset(filename, 0, sizeof(filename));
-    strcpy(filename[0], "./Clnt_LogInfo/Log_Cpu");
-    strcpy(filename[1], "./Clnt_LogInfo/Log_Mem");
-    strcpy(filename[2], "./Clnt_LogInfo/Log_User");
-    strcpy(filename[3], "./Clnt_LogInfo/Log_Disk");
-    strcpy(filename[4], "./Clnt_LogInfo/Log_Dete");
-    strcpy(filename[5], "./Clnt_LogInfo/Log_Stat");
+    sprintf(filename[0], "%s/Log_Cpu",  LoginfoDir);
+    sprintf(filename[1], "%s/Log_Mem" , LoginfoDir);
+    sprintf(filename[2], "%s/Log_User", LoginfoDir);
+    sprintf(filename[3], "%s/Log_Disk", LoginfoDir);
+    sprintf(filename[4], "%s/Log_Dete", LoginfoDir);
+    sprintf(filename[5], "%s/Log_Stat", LoginfoDir);
     int ret = 0;
+    write_running_log(SysLog, "After sprintf  last error：%s\n", strerror(errno));
     for (int i = 0; i < 6; i++) {
         DBG("文件 %d 开始发送！\n", i);
+        DBG("filename = %s\n", filename[i]);
+        write_running_log(SysLog, "文件%d 开始发送 filename = %s\n", i, filename[i]);
         FILE *fp = fopen(filename[i], "r");
-        if (fp == NULL) PERR("fopen i");
+        if (fp == NULL) {
+            write_running_log(SysLog, "perror fopen i: %s\n", strerror(errno));
+            PERR("fopen i");
+            sleep(1);
+            continue;
+        } 
         flock(fp->_fileno, LOCK_EX);
+        write_running_log(SysLog, "after flock\n");
         int cnt = 0;
         while(1) {
             memset(&loginfo, 0, sizeof(loginfo));
             int read_ret = fread(loginfo.buf, 1, 1024, fp);
-            if (read_ret < 0) PERR("fread in while1");
+            if (read_ret < 0) { PERR("fread in while1"); break;}
             if (read_ret == 0 && cnt == 0) {DBG("空文件跳过\n");break;}
             else if (read_ret == 0 && cnt > 0) { break; }
             loginfo.flag = i;
             loginfo.buflen = strlen(loginfo.buf);
             //DBG("包：\nflag = %d, stdlen = %d buf = \n%s\n", loginfo.flag, loginfo.buflen, loginfo.buf);
             int send_ret = send(now_fd, &(loginfo), sizeof(loginfo), 0);
-            if (send_ret < 0) PERR("send in while1");
+            if (send_ret < 0)  { PERR("send in while1"); break; }
             if (send_ret == 0) {
                 DBG("对方关闭链接\n");
                 write_running_log(SysLog, "Send log faild because Master closed\n", strerror(errno));
@@ -353,6 +365,7 @@ int do_send(int now_fd, int epollfd) {
         }
         fclose(fp);
         DBG("文件 %d 处理成功！\n\n", i);
+        write_running_log(SysLog, "文件 %d 处理成功 ret = %d\n", i, ret);
         if (ret != -1) {
             FILE *clear = fopen(filename[i], "w");
             if (fp == NULL) PERR("fopen clear");
@@ -382,8 +395,10 @@ void do_events(int epollfd, int nfds, int listen_socket, struct epoll_event *eve
             int master_socket = accept_clnt(listen_socket);
             if (master_socket == -1) {
                 DBG("[work] 数据请求 连接失败\n");
+                write_running_log(SysLog, "[work] 数据请求 连接失败\n");
             } else {
                 DBG("[work] 数据请求链接成功\n");
+                write_running_log(SysLog, "[work] 数据请求 连接成功\n");
                 add_event(epollfd, master_socket, EPOLLIN);
             }
         } else if (now_fd != listen_socket && events[i].events & EPOLLIN) {
@@ -399,39 +414,51 @@ void do_events(int epollfd, int nfds, int listen_socket, struct epoll_event *eve
             ioctl(now_fd, FIONBIO, &bl_ul);
         } else if(now_fd != listen_socket && events[i].events & EPOLLOUT) {
             DBG("准备发送数据\n");
+            write_running_log(SysLog, "[work] 准备发送数据给Master\n");
             unsigned long un_ul = 0;
             ioctl(now_fd, FIONBIO, &un_ul);
+            write_running_log(SysLog, "[work] 开始send\n");
             do_send(now_fd, epollfd);
+            write_running_log(SysLog, "[work] 结束send\n");
             unsigned long bl_ul = 1;
             ioctl(now_fd, FIONBIO, &bl_ul);
 
             DBG("send success!!\n");
+            write_running_log(SysLog, "[work] send success!\n");
             delete_event(epollfd, now_fd, 0);
             close(now_fd);
             DBG("now_fd closed!\n");
+            write_running_log(SysLog, "[work] now_fd closed!\n");
         
         } else {
             DBG("不应该存在的情况\n");
+            write_running_log(SysLog, "[work] 不应该存在的情况\n");
         }
     }
 }
 
 void do_data_recv_send() {
+    
     int listen_socket = get_listen_socket(clntIP, atoi(clntPORT));
-    if(listen_socket < 0) { PERR("[work] getlistensock"); exit(1); }
+    if(listen_socket < 0) { PERR("[work] getlistensock"); return; }
     int epollfd;
     struct epoll_event events[MAX_EVENTS];
     epollfd = epoll_create(1);
     add_event(epollfd, listen_socket, EPOLLIN);
     while(1) {
         DBG("-------------send N recv-----------------\n");
+        write_running_log(SysLog, "-----send N recv------\n");
         int nfds = epoll_wait(epollfd, events, MAX_EVENTS, 3000);
         if (nfds == -1) { 
             PERR("epoll_wait in do_data_send_recv");
+            write_running_log(SysLog, "[sendNrecv] nfds == -1\n");
         } else if (nfds == 0) {
             DBG("send N recv Timeout!\n");
+            write_running_log(SysLog, "[sendNrecv] Timeout~~\n");
         } else {
+            write_running_log(SysLog, "[sendNrecv] 开始 do_events!\n");
             do_events(epollfd, nfds, listen_socket, events);
+            write_running_log(SysLog, "[sendNrecv] 结束 do_events!\n");
             msg->heartbeat_flag = 0;
             msg->makeinfo_times=0;
 
@@ -441,9 +468,19 @@ void do_data_recv_send() {
     close(epollfd);
 }
     
-int main() {
-    do_clnt_config();
-    mkdir("./Clnt_Sys_Log", 0777);
+int real_main() {
+    setsid();
+    chdir("/");
+    umask(0);
+    if (mkdir(LoginfoDir, 0777) < 0) {
+        write_running_log(SysLog, "mkdir ZipLog error %s\n", strerror(errno));
+    }
+    //close(0);
+    //close(1);
+    //close(2);
+    /*
+    */
+    //mkdir("./Clnt_Sys_Log", 0666);
     DBG("master IP = %s Master PORT =  %s\n", masterIP, masterPORT);
     DBG("clnt IP = %s clnt PORT =  %s\n", clntIP, clntHPORT);
     DBG("主进程：永远等待master发送心跳。\n");
@@ -456,7 +493,7 @@ int main() {
     msg->makeinfo_times = 0;
     msg->para_for_Mem = 0;
 
-	pid_t pid;
+	pid_t pid = 0;
 	int my_id = 0;
     pid = fork();
     if (pid == 0) {
@@ -466,12 +503,12 @@ int main() {
     if (pid == 0) my_id++;
     
     if (my_id == 0) {
-        msg->Reconn_pid = pid;
         DBG("[主] pid = %d ：监听心跳信号\n", getpid());
         pthread_t pthread_id;
         pthread_create(&pthread_id, NULL, do_make_log_info, NULL);
         heartbeat_recv();
     } else if (my_id == 1) {
+        msg->Reconn_pid = getpid();
         DBG("[子] pid = %d ：我是子进程, 在等待接受信号，断线重连时刻就绪\n", getpid());
         signal(10, grandson_lazy_connect);
         while(1) pause();
@@ -480,6 +517,29 @@ int main() {
         first_try_connect();
         DBG("***孙子进程开始进行数据收发工作。。。。。。。***\n");
         do_data_recv_send();         
+        write_running_log(SysLog, "孙子进程运行到最后结束了！ last error%s\n", strerror(errno));
     }
     return 0;
 }
+
+int main() {
+    do_clnt_config();
+    /*
+    char cp_cmd[100] = {0};
+    sprintf(cp_cmd, "cp -r ./1.ShellStuff/ %s", ShellDir);
+    FILE *pp = popen(cp_cmd, "r");
+    if (pp == NULL) {
+        PERR("popen");
+        write_running_log(SysLog, "cp SHELLSTUFF ERROR %s\n", strerror(errno));
+        exit(1);
+    }
+    pclose(pp);
+    */
+
+    pid_t pid_tmp = fork();
+    if (pid_tmp == 0) {
+        real_main();
+    }
+    exit(0);
+}
+
