@@ -1,8 +1,8 @@
 /*************************************************************************
-	> File Name: Epoll.h
+	> File Name: Sock.h
 	> Author: Zip 
 	> Mail: 307110017@qq.com 
-	> Created Time: 2019年08月08日 星期四 19时39分32秒
+	> Created Time: 2019年08月08日 星期四 19时51分30秒
  ************************************************************************/
 
 #include <stdio.h>
@@ -29,13 +29,14 @@
 #include <sys/stat.h>
 
 
-#ifndef _EPOLL_H
-#define _EPOLL_H
-
-
-int add_event(int epollfd,int fd,int state);
-int delete_event(int epollfd,int fd,int state);
-int modify_event(int epollfd,int fd,int state);
-
+#ifndef _SOCK_H
+#define _SOCK_H
+void make_sockaddr_in(struct sockaddr_in *addr, char *ip, char *port) ;
+int get_listen_socket(char *ip, int port) ;
+int  accept_clnt(int listen_socket) ;
 #endif
+
+
+
+
 

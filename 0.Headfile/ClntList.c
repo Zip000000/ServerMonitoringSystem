@@ -1,34 +1,5 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
 
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <sys/epoll.h>
-#include <unistd.h>
-#include <sys/types.h>
-
-
-#ifndef ClntList
-#define ClntList
-typedef struct clnt_node {
-    unsigned int ip;
-    int id;
-    char logPath[32];
-    struct clnt_node *next;
-} clntnode;
-
-typedef struct ClntInfoList {
-    clntnode *head;
-    int clnt_num;
-    int maxid;
-    int my_id;
-} ClntInfoList, *PClntInfoList;
-//PClntInfoList *clnt_list;
-//ClntInfoList *all_clnt;
-// all = all_init(Ins);
+#include "ClntList.h"
 
 ClntInfoList *Clnt_Info_list_init(int id) {
     ClntInfoList *all_clnt;
@@ -170,4 +141,3 @@ void clear_List(ClntInfoList *a) {
     return ;
 }
 
-#endif

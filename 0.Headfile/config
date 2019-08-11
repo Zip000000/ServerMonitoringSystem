@@ -2,8 +2,8 @@
 Ins=1
 startIP=192.168.1.0
 endIP=192.168.1.1
-MasterIP!=192.168.1.43
-MasterIP=127.0.0.1
+MasterIP=192.168.1.43
+MasterIP!=127.0.0.1
 MasterPORT=8800
 MasterWPORT=6600
 Master_MAX_EVENTS=100

@@ -34,10 +34,31 @@
 #include <stdarg.h>
 #include <sys/file.h>
 
-#include "Sock.c"
-#include "ClntList.c"
-#include "Epoll.c"
-#include "Common.c"
+#include "./0.Headfile/Sock.h"
+#include "./0.Headfile/ClntList.h"
+#include "./0.Headfile/Epoll.h"
+#include "./0.Headfile/Common.h"
+/*
+char startIP[100];
+char endIP[100];
+char masterIP[100];
+char masterPORT[100];
+char masterWPORT[100];
+char clntHPORT[100];
+char clntPORT[100];
+char clntIP[100];
+char INS[100];
+char MAX_EVENTS[100];
+char MAX_WORK_EVENTS[100];
+char HeartbeatTimeout[100];
+char ReconnTimes[100];
+char Send_Recv_Time[100];
+char SysLog[100];
+char ShellDir[100];
+char LoginfoDir[100];
+char MasterLogDir[100];
+*/
+
 
 int Ins;
 pthread_mutex_t mutex;
@@ -359,11 +380,11 @@ void *do_work (void *arg) {
                 close(sock);
                 DBG("[send & recv] <%s>%d ： clear success！\n",cnext_ip_str, sock);
                 write_running_log(SysLog, "[send & recv] <%s>%d ： clear success！\n",cnext_ip_str, sock);
-                sleep(atoi(Send_Recv_Time));  //10s收发一次
                 break;
             }
             //c = c->next;
         }
+    sleep(atoi(Send_Recv_Time));  //10s收发一次
     clear_List(tmp_list);
     }
 }

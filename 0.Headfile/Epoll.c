@@ -1,5 +1,6 @@
-#ifndef My_Epoll
-#define My_Epoll
+
+#include "Epoll.h"
+
 int add_event(int epollfd,int fd,int state)
 {
         struct epoll_event ev;
@@ -38,4 +39,3 @@ int modify_event(int epollfd,int fd,int state)
     }
 
 }
-#endif

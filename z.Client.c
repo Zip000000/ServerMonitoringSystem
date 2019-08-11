@@ -34,13 +34,36 @@
 #include <errno.h>
 #include <time.h>
 #include <stdarg.h>
+#include <sys/stat.h>
 
-#include "Common.c"
-#include "Sock.c"
-#include "Epoll.c"
+
+#include "0.Headfile/Common.h"
+#include "0.Headfile/Sock.h"
+#include "0.Headfile/Epoll.h"
 
 #define MAX_DATA 1024
-#define MAX_EVENTS 10
+#define CLNT_MAX_EVENTS 10
+/*
+char startIP[100];
+char endIP[100];
+char masterIP[100];
+char masterPORT[100];
+char masterWPORT[100];
+char clntHPORT[100];
+char clntPORT[100];
+char clntIP[100];
+char INS[100];
+char MAX_EVENTS[100];
+char MAX_WORK_EVENTS[100];
+char HeartbeatTimeout[100];
+char ReconnTimes[100];
+char Send_Recv_Time[100];
+char SysLog[100];
+char ShellDir[100];
+char LoginfoDir[100];
+char MasterLogDir[100];
+*/
+
 struct sm_msg {
     int heartbeat_flag;
     int makeinfo_times;
@@ -161,12 +184,12 @@ int heartbeat_recv() {
         PERR("getlistensock");
         return -1;
     }
-    struct epoll_event events[MAX_EVENTS];
+    struct epoll_event events[CLNT_MAX_EVENTS];
     int epollfd = epoll_create(1);
     add_event(epollfd, listen_socket, EPOLLIN);
     while(1) {
         DBG("------------------------------\n");
-        int nfds = epoll_wait(epollfd, events, MAX_EVENTS, 1000);
+        int nfds = epoll_wait(epollfd, events, CLNT_MAX_EVENTS, 1000);
         if (nfds == -1) { 
             PERR("epoll_wait");
         } else if (nfds == 0) {
@@ -295,7 +318,7 @@ void *do_make_log_info(void *arg) {
         make_single_log(&Cpu);
         make_single_log(&Mem);
         cnt++;
-        //sleep(5);
+        sleep(1);
 /* 
         make_single_log(&Cpu);
         make_single_log(&Mem);
@@ -442,13 +465,13 @@ void do_data_recv_send() {
     int listen_socket = get_listen_socket(clntIP, atoi(clntPORT));
     if(listen_socket < 0) { PERR("[work] getlistensock"); return; }
     int epollfd;
-    struct epoll_event events[MAX_EVENTS];
+    struct epoll_event events[CLNT_MAX_EVENTS];
     epollfd = epoll_create(1);
     add_event(epollfd, listen_socket, EPOLLIN);
     while(1) {
         DBG("-------------send N recv-----------------\n");
         write_running_log(SysLog, "-----send N recv------\n");
-        int nfds = epoll_wait(epollfd, events, MAX_EVENTS, 3000);
+        int nfds = epoll_wait(epollfd, events, CLNT_MAX_EVENTS, 3000);
         if (nfds == -1) { 
             PERR("epoll_wait in do_data_send_recv");
             write_running_log(SysLog, "[sendNrecv] nfds == -1\n");
@@ -475,9 +498,9 @@ int real_main() {
     if (mkdir(LoginfoDir, 0777) < 0) {
         write_running_log(SysLog, "mkdir ZipLog error %s\n", strerror(errno));
     }
-    //close(0);
-    //close(1);
-    //close(2);
+    close(0);
+    close(1);
+    close(2);
     /*
     */
     //mkdir("./Clnt_Sys_Log", 0666);
